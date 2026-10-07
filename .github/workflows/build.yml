@@ -1,0 +1,21 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: dotnet build src/TabbedNotepad.csproj -c Release
+
+      - name: Upload TabbedNotepad.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: TabbedNotepad
+          path: src/bin/Release/net48/TabbedNotepad.exe
