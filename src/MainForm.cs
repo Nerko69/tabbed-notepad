@@ -13,7 +13,8 @@ namespace TabbedNotepad
     /// <summary>A tab page holding one note's editor.</summary>
     internal sealed class NoteTab : TabPage
     {
-        public string Id { get; }
+        /// <summary>The tab's file name in the notes folder, without ".txt".</summary>
+        public string Id { get; set; }
         public TextBox Editor { get; }
         public bool Dirty { get; set; }
 
@@ -35,6 +36,9 @@ namespace TabbedNotepad
                 Dock = DockStyle.Fill,
                 Text = text ?? "",
             };
+            // A WinForms TextBox selects all of its text the first time it gets focus unless a
+            // selection was set, so one keystroke after switching tabs would replace the whole note.
+            Editor.Select(0, 0);
             Controls.Add(Editor);
         }
 
@@ -45,10 +49,11 @@ namespace TabbedNotepad
     {
         private const string AppName = "Tabbed Notepad";
 
-        private readonly NoteStore _store;
+        private NoteStore _store;
         private readonly TabControl _tabs;
         private readonly ContextMenuStrip _tabMenu;
         private readonly ToolStripStatusLabel _statusLabel;
+        private readonly ToolStripStatusLabel _folderLabel;
         private readonly ToolStripStatusLabel _positionLabel;
         private readonly ToolStripMenuItem _wordWrapItem;
         private readonly Timer _saveTimer;
@@ -104,9 +109,12 @@ namespace TabbedNotepad
             file.DropDownItems.Add(Item("&Rename Tab...", Keys.F2, (s, e) => RenameTab(CurrentTab)));
             file.DropDownItems.Add(Item("&Close Tab", Keys.Control | Keys.W, (s, e) => CloseTab(CurrentTab)));
             file.DropDownItems.Add(new ToolStripSeparator());
-            file.DropDownItems.Add(Item("&Save Now", Keys.Control | Keys.S, (s, e) => SaveAll(showStatus: true)));
-            file.DropDownItems.Add(Item("&Export Tab As...", Keys.Control | Keys.Shift | Keys.S, (s, e) => ExportCurrentTab()));
-            file.DropDownItems.Add(Item("Open Notes &Folder", Keys.None, (s, e) => OpenNotesFolder()));
+            file.DropDownItems.Add(Item("&Open...", Keys.Control | Keys.O, (s, e) => OpenFolder()));
+            file.DropDownItems.Add(Item("&Save", Keys.Control | Keys.S, (s, e) => SaveNow()));
+            file.DropDownItems.Add(Item("Save &All Tabs As...", Keys.Control | Keys.Shift | Keys.S, (s, e) => SaveAllTabsAs()));
+            file.DropDownItems.Add(Item("Save This Tab As &Text File...", Keys.None, (s, e) => ExportCurrentTab()));
+            file.DropDownItems.Add(new ToolStripSeparator());
+            file.DropDownItems.Add(Item("Show Notes &Folder", Keys.None, (s, e) => ShowNotesFolder()));
             file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add(Item("E&xit", Keys.None, (s, e) => Close()));
 
@@ -140,9 +148,19 @@ namespace TabbedNotepad
             MainMenuStrip = menu;
 
             var status = new StatusStrip();
-            _statusLabel = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
-            _positionLabel = new ToolStripStatusLabel { AutoSize = true };
+            _statusLabel = new ToolStripStatusLabel { AutoSize = true };
+            // Always show where the notes are saved; clicking it opens the folder.
+            _folderLabel = new ToolStripStatusLabel
+            {
+                IsLink = true,
+                Spring = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                BorderSides = ToolStripStatusLabelBorderSides.Left,
+            };
+            _folderLabel.Click += (s, e) => ShowNotesFolder();
+            _positionLabel = new ToolStripStatusLabel { AutoSize = true, BorderSides = ToolStripStatusLabelBorderSides.Left };
             status.Items.Add(_statusLabel);
+            status.Items.Add(_folderLabel);
             status.Items.Add(_positionLabel);
 
             Controls.Add(_tabs);
@@ -153,7 +171,7 @@ namespace TabbedNotepad
             _saveTimer = new Timer { Interval = 1500 };
             _saveTimer.Tick += (s, e) => { _saveTimer.Stop(); SaveAll(showStatus: false); };
 
-            LoadNotes();
+            LoadNotes(applyWindowSettings: true);
         }
 
         private static ToolStripMenuItem Item(string text, Keys keys, EventHandler onClick)
@@ -169,9 +187,16 @@ namespace TabbedNotepad
 
         // ---------------------------------------------------------------- loading & saving
 
-        private void LoadNotes()
+        /// <summary>Loads all tabs from the current notes folder, replacing any open tabs.</summary>
+        private void LoadNotes(bool applyWindowSettings)
         {
             _loading = true;
+            _tabs.SuspendLayout();
+            foreach (var old in AllTabs.ToList())
+            {
+                _tabs.TabPages.Remove(old);
+                old.Dispose();
+            }
             List<NoteData> notes;
             try
             {
@@ -193,23 +218,77 @@ namespace TabbedNotepad
                 catch { /* keep default font */ }
             }
             _wordWrapItem.Checked = !settings.TryGetValue("wordwrap", out string wrap) || wrap != "0";
-            RestoreWindowBounds(settings.TryGetValue("window", out string bounds) ? bounds : null);
+            if (applyWindowSettings)
+                RestoreWindowBounds(settings.TryGetValue("window", out string bounds) ? bounds : null);
 
             foreach (var note in notes)
                 AddTab(new NoteTab(note.Id, note.Title, note.Text));
 
             if (_tabs.TabCount == 0)
             {
-                AddTab(new NoteTab(NoteStore.NewId(), "My notes", ""));
+                AddTab(new NoteTab(UniqueId("My notes", null), "My notes", ""));
                 _indexDirty = true;
             }
 
             if (settings.TryGetValue("selected", out string sel) && int.TryParse(sel, out int index) && index >= 0 && index < _tabs.TabCount)
                 _tabs.SelectedIndex = index;
 
+            _tabs.ResumeLayout();
             _loading = false;
+            RenameFilesToTabNames();
+            UpdateFolderLabel();
             OnSelectedTabChanged();
-            SetStatus("Notes are saved automatically in " + _store.Folder);
+            SetStatus("Notes are saved automatically");
+        }
+
+        /// <summary>
+        /// Gives every tab's file the tab's name (e.g. "Project A.txt"), so the notes folder is easy
+        /// to understand. Also upgrades notes saved by version 1.0, whose files had generated names.
+        /// </summary>
+        private void RenameFilesToTabNames()
+        {
+            foreach (var tab in AllTabs)
+            {
+                string wanted = UniqueId(tab.Text, tab);
+                if (wanted == tab.Id) continue;
+                try
+                {
+                    _store.RenameNote(tab.Id, wanted);
+                    tab.Id = wanted;
+                    _indexDirty = true;
+                }
+                catch
+                {
+                    // Keep the old file name; the note itself is fine.
+                }
+            }
+            if (_indexDirty) SaveAll(showStatus: false, quiet: true);
+        }
+
+        /// <summary>
+        /// A file name for a tab called <paramref name="title"/> that no other tab, and no other
+        /// file in the notes folder, is using. <paramref name="self"/> is the tab being named (or null).
+        /// </summary>
+        private string UniqueId(string title, NoteTab self)
+        {
+            var taken = AllTabs.Where(t => t != self).Select(t => t.Id).ToList();
+            while (true)
+            {
+                string id = NoteStore.FileNameFor(title, taken);
+                bool ownFile = self != null && string.Equals(id, self.Id, StringComparison.OrdinalIgnoreCase);
+                if (ownFile || !_store.NoteFileExists(id)) return id;
+                taken.Add(id);
+            }
+        }
+
+        private void UpdateFolderLabel()
+        {
+            // Shorten very long paths from the middle; the tooltip always has the full path.
+            string folder = _store.Folder;
+            if (folder.Length > 60)
+                folder = folder.Substring(0, 20) + "..." + folder.Substring(folder.Length - 35);
+            _folderLabel.Text = "Notes folder: " + folder;
+            _folderLabel.ToolTipText = _store.Folder + "\nClick to open this folder";
         }
 
         private void AddTab(NoteTab tab, int index = -1)
@@ -270,7 +349,7 @@ namespace TabbedNotepad
                 }
 
                 _lastSaveError = null;
-                SetStatus((showStatus ? "Saved" : "All changes saved") + " at " + DateTime.Now.ToString("T"));
+                SetStatus((showStatus ? "Saved" : "All changes saved") + " at " + DateTime.Now.ToString("t"));
                 return true;
             }
             catch (Exception ex)
@@ -296,7 +375,7 @@ namespace TabbedNotepad
             string name = InputDialog.Ask(this, "New Tab", "Name for the new tab (for example a project name):", "Project " + (_tabs.TabCount + 1));
             if (name == null) return;
 
-            var tab = new NoteTab(NoteStore.NewId(), name, "") { Dirty = true };
+            var tab = new NoteTab(UniqueId(name, null), name, "") { Dirty = true };
             AddTab(tab);
             _tabs.SelectedTab = tab;
             _indexDirty = true;
@@ -309,6 +388,19 @@ namespace TabbedNotepad
             if (tab == null) return;
             string name = InputDialog.Ask(this, "Rename Tab", "New name for this tab:", tab.Text);
             if (name == null || name == tab.Text) return;
+
+            // Save first so the file being renamed has the latest text, then rename it to match the tab.
+            SaveAll(showStatus: false, quiet: true);
+            string newId = UniqueId(name, tab);
+            try
+            {
+                _store.RenameNote(tab.Id, newId);
+                tab.Id = newId;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "The tab was renamed, but its file could not be renamed:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
             tab.Text = name;
             _indexDirty = true;
             UpdateTitle();
@@ -338,7 +430,7 @@ namespace TabbedNotepad
 
             // Select the neighbouring tab first so focus never sits on a page being removed.
             if (_tabs.TabCount == 1)
-                AddTab(new NoteTab(NoteStore.NewId(), "My notes", ""));
+                AddTab(new NoteTab(UniqueId("My notes", tab), "My notes", ""));
             int index = _tabs.TabPages.IndexOf(tab);
             _tabs.SelectedIndex = index + 1 < _tabs.TabCount ? index + 1 : index - 1;
             _tabs.TabPages.Remove(tab);
@@ -559,30 +651,169 @@ namespace TabbedNotepad
 
         // ---------------------------------------------------------------- misc
 
+        private void SaveNow()
+        {
+            _indexDirty = true;
+            if (SaveAll(showStatus: true))
+                SetStatus("All tabs saved at " + DateTime.Now.ToString("t"));
+        }
+
+        /// <summary>
+        /// Like "Save As" in Notepad, but for all tabs at once: saves every tab into a folder the
+        /// user picks, and keeps saving there from then on.
+        /// </summary>
+        private void SaveAllTabsAs()
+        {
+            SaveAll(showStatus: false, quiet: true);
+            string folder = FolderPicker.Pick(this, "Save All Tabs As - choose a folder for your notes", "Save here", _store.Folder);
+            if (folder == null) return;
+            if (SameFolder(folder, _store.Folder))
+            {
+                SaveNow();
+                return;
+            }
+
+            NoteStore target;
+            try
+            {
+                target = new NoteStore(folder);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not use this folder:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Never replace anything already in that folder without asking.
+            var clashes = AllTabs.Where(t => target.NoteFileExists(t.Id)).Select(t => t.Id + ".txt").ToList();
+            if (target.HasIndex || clashes.Count > 0)
+            {
+                string message = target.HasIndex
+                    ? "This folder already has notes saved by " + AppName + ". Saving here replaces its tab list with your current tabs."
+                    : "Some files in this folder have the same names as your tabs.";
+                if (clashes.Count > 0)
+                    message += "\n\nThese files will be replaced:\n  " + string.Join("\n  ", clashes.Take(10)) + (clashes.Count > 10 ? "\n  ..." : "");
+                message += "\n\nContinue? (To open the notes in that folder instead, choose No and use File > Open.)";
+                if (MessageBox.Show(this, message, AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                    return;
+            }
+
+            var oldStore = _store;
+            foreach (var pair in oldStore.Settings) target.Settings[pair.Key] = pair.Value;
+            _store = target;
+            foreach (var tab in AllTabs) tab.Dirty = true;
+            _indexDirty = true;
+            if (!SaveAll(showStatus: false, quiet: true))
+            {
+                _store = oldStore;
+                _indexDirty = true;
+                MessageBox.Show(this, "Your tabs could not be saved in\n" + folder + "\n\n" + _statusLabel.Text + "\n\nThey are still saved in\n" + oldStore.Folder,
+                    AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ScheduleSave();
+                return;
+            }
+
+            RememberFolder(folder);
+            UpdateFolderLabel();
+            MessageBox.Show(this,
+                "Saved " + _tabs.TabCount + (_tabs.TabCount == 1 ? " tab" : " tabs") + " in:\n" + folder +
+                "\n\nFrom now on your notes are saved there automatically, one .txt file per tab." +
+                "\n\nThe earlier copy in " + oldStore.Folder + " was left as it was.",
+                AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        /// <summary>Switches to the notes in another folder (or a folder of .txt files, each opened as a tab).</summary>
+        private void OpenFolder()
+        {
+            if (!SaveAll(showStatus: false, quiet: true))
+            {
+                MessageBox.Show(this, "Your current notes could not be saved, so nothing else was opened:\n\n" + _statusLabel.Text, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string folder = FolderPicker.Pick(this, "Open - choose a folder with notes", "Open", _store.Folder);
+            if (folder == null || SameFolder(folder, _store.Folder)) return;
+
+            NoteStore target;
+            int textFiles;
+            try
+            {
+                target = new NoteStore(folder);
+                textFiles = Directory.GetFiles(folder, "*.txt").Count(f => string.Equals(Path.GetExtension(f), ".txt", StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not open this folder:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (!target.HasIndex)
+            {
+                if (textFiles == 0)
+                {
+                    MessageBox.Show(this, "There are no notes (.txt files) in this folder.\n\nTo save your current tabs there, use File > Save All Tabs As.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (MessageBox.Show(this, "This folder has " + textFiles + " text " + (textFiles == 1 ? "file" : "files") + ". Open each one as a tab?\n\nChanges will be saved back to these files automatically.",
+                        AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                    return;
+            }
+
+            _store = target;
+            LoadNotes(applyWindowSettings: false);
+            RememberFolder(folder);
+            SetStatus("Opened " + _tabs.TabCount + (_tabs.TabCount == 1 ? " tab" : " tabs"));
+        }
+
+        private void RememberFolder(string folder)
+        {
+            try
+            {
+                AppConfig.SaveNotesFolder(folder);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not remember this folder for next time:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private static bool SameFolder(string a, string b)
+        {
+            try
+            {
+                return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'), Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void ExportCurrentTab()
         {
             var tab = CurrentTab;
             if (tab == null) return;
             using (var dialog = new SaveFileDialog
             {
+                Title = "Save This Tab As Text File",
                 Filter = "Text documents (*.txt)|*.txt|All files (*.*)|*.*",
-                FileName = NoteStore.MakeFileNameSafe(tab.Text) + ".txt",
+                FileName = tab.Id + ".txt",
             })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 try
                 {
                     File.WriteAllText(dialog.FileName, tab.Editor.Text, new System.Text.UTF8Encoding(false));
-                    SetStatus("Exported to " + dialog.FileName);
+                    SetStatus("Copy of \"" + tab.Text + "\" saved to " + dialog.FileName);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "Could not export:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(this, "Could not save:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
 
-        private void OpenNotesFolder()
+        private void ShowNotesFolder()
         {
             SaveAll(showStatus: false);
             try { Process.Start("explorer.exe", "\"" + _store.Folder + "\""); }
@@ -603,8 +834,11 @@ namespace TabbedNotepad
                 "  F5\tInsert time and date\n" +
                 "  Ctrl+F\tFind (can search all tabs)\n" +
                 "  F3\tFind next\n" +
-                "  Ctrl+S\tSave now (saving is automatic anyway)\n\n" +
-                "Your notes are saved automatically as .txt files in:\n" + _store.Folder,
+                "Saving\n" +
+                "  Ctrl+S\tSave (saving is automatic anyway)\n" +
+                "  Ctrl+Shift+S\tSave all tabs as... (pick a folder)\n" +
+                "  Ctrl+O\tOpen notes from another folder\n\n" +
+                "Your notes are saved automatically, one .txt file per tab, in:\n" + _store.Folder,
                 "Keyboard Shortcuts - " + AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 

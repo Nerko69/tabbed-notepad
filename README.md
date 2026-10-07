@@ -30,18 +30,36 @@ No installation needed. It runs on Windows 10 and 11, which already include .NET
 | Insert time and date | **F5** (like Notepad) — handy for a daily log |
 | Find | **Ctrl+F**, then **F3** for the next match. "Search all tabs" looks through every tab |
 | Word wrap / font | **Format** menu |
-| Export a tab to a .txt file | **Ctrl+Shift+S** |
-| Save | Automatic. **Ctrl+S** saves immediately if you want peace of mind |
+| Save | Automatic as you type. **Ctrl+S** saves immediately if you want peace of mind |
+| Save all tabs somewhere else | **File → Save All Tabs As…** (**Ctrl+Shift+S**) — see below |
+| Open notes from another folder | **File → Open…** (**Ctrl+O**) |
+| Save one tab as a separate .txt file | **File → Save This Tab As Text File…** |
 
 ## Where are my notes?
 
-In `Documents\TabbedNotepad` (open it from **File → Open Notes Folder**):
+The bottom of the window always shows the **notes folder**. Click it to open the folder in
+Explorer. By default it is `Documents\TabbedNotepad`.
 
-- Each tab is a plain `.txt` file, so your notes are readable with any editor even without this app.
-- `tabs.ini` remembers the tab names, their order, the window position and the font.
+- Each tab is a plain `.txt` file named after the tab (`Project A.txt`, `Client B.txt`, …), so
+  your notes are readable with any editor even without this app. Renaming a tab renames its file.
+- `tabs.ini` remembers the tab order, the window position and the font.
 - Closing a tab never deletes its text: it is moved to the `Closed tabs` subfolder.
 
-To back up your notes, just copy that folder. Only one copy of the app runs at a time;
+### Saving to a different place: Save All Tabs As
+
+**File → Save All Tabs As…** works like *Save As* in Notepad, but for all tabs at once:
+
+1. Pick a folder, for example a new folder on your Desktop, in OneDrive, or on a USB stick.
+2. All tabs are saved there, one `.txt` file per tab.
+3. From then on the app keeps saving to that folder, and it opens that folder the next time you start it.
+
+The previous folder is left as it was, so it stays behind as a backup copy. If the folder you pick
+already contains files with the same names, the app asks before replacing anything.
+
+**File → Open…** switches to the notes in another folder. You can also open any folder of
+ordinary `.txt` files, and each file becomes a tab.
+
+To back up your notes, copy the notes folder. Only one copy of the app runs at a time;
 starting it again brings the open window to the front.
 
 ## Building from source
