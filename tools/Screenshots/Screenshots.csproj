@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Opens Tabbed Notepad with demo notes, checks the main features and saves the screenshots
+       used in docs/user-guide.md. Needs Windows; the Build workflow runs it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Screenshots</AssemblyName>
+    <RootNamespace>TabbedNotepad.Screenshots</RootNamespace>
+    <GenerateAppConfigFile>false</GenerateAppConfigFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <ProjectReference Include="../../src/TabbedNotepad.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,67 +1,36 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace TabbedNotepad
 {
-    /// <summary>A tab page holding one note's editor.</summary>
-    internal sealed class NoteTab : TabPage
-    {
-        /// <summary>The tab's file name in the notes folder, without ".txt".</summary>
-        public string Id { get; set; }
-        public TextBox Editor { get; }
-        public bool Dirty { get; set; }
-
-        public NoteTab(string id, string title, string text)
-        {
-            Id = id;
-            Text = title;
-            UseVisualStyleBackColor = false;
-            Editor = new TextBox
-            {
-                Multiline = true,
-                AcceptsTab = true,
-                AcceptsReturn = true,
-                MaxLength = 0,           // no 32K limit, daily logs grow
-                HideSelection = false,   // keep Find results visible while the Find dialog has focus
-                ScrollBars = ScrollBars.Both,
-                WordWrap = true,
-                BorderStyle = BorderStyle.None,
-                Dock = DockStyle.Fill,
-                Text = text ?? "",
-            };
-            // A WinForms TextBox selects all of its text the first time it gets focus unless a
-            // selection was set, so one keystroke after switching tabs would replace the whole note.
-            Editor.Select(0, 0);
-            Controls.Add(Editor);
-        }
-
-        public NoteData ToData() => new NoteData { Id = Id, Title = Text, Text = Editor.Text };
-    }
-
-    internal sealed class MainForm : Form
+    internal sealed partial class MainForm : Form
     {
         private const string AppName = "Tabbed Notepad";
+        private const string UserGuideUrl = "https://github.com/Nerko69/tabbed-notepad/blob/main/docs/user-guide.md";
 
         private NoteStore _store;
         private readonly TabControl _tabs;
         private readonly ContextMenuStrip _tabMenu;
+        private readonly ContextMenuStrip _editorMenu;
         private readonly ToolStripStatusLabel _statusLabel;
         private readonly ToolStripStatusLabel _folderLabel;
         private readonly ToolStripStatusLabel _positionLabel;
         private readonly ToolStripMenuItem _wordWrapItem;
+        private readonly ToolStripMenuItem _multiRowItem;
+        private readonly ToolStripMenuItem _saveCopyToNotesItem;
         private readonly Timer _saveTimer;
-        private FindDialog _findDialog;
 
         private Font _editorFont = new Font("Consolas", 11f);
         private bool _indexDirty;
         private bool _loading;
+        private bool _resolvingConflict;
         private string _lastSaveError;
 
         // Tab drag-to-reorder state.
@@ -75,14 +44,19 @@ namespace TabbedNotepad
             Text = AppName;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = SystemFonts.MessageBoxFont;
-            Size = new Size(Dpi.Scale(900), Dpi.Scale(650));
+            Size = new Size(Dpi.Scale(1000), Dpi.Scale(680));
             StartPosition = FormStartPosition.WindowsDefaultLocation;
 
             _tabs = new TabControl
             {
                 Dock = DockStyle.Fill,
-                Padding = new Point(Dpi.Scale(12), Dpi.Scale(4)),
+                Padding = new Point(Dpi.Scale(12), Dpi.Scale(5)),
+                DrawMode = TabDrawMode.OwnerDrawFixed,
+                Appearance = TabAppearance.FlatButtons,   // rows of tabs stay in place when switching
+                ShowToolTips = true,
+                Multiline = true,
             };
+            _tabs.DrawItem += Tabs_DrawItem;
             _tabs.SelectedIndexChanged += (s, e) => OnSelectedTabChanged();
             _tabs.MouseDown += Tabs_MouseDown;
             _tabs.MouseMove += Tabs_MouseMove;
@@ -94,12 +68,18 @@ namespace TabbedNotepad
 
             _tabMenu = new ContextMenuStrip();
             _tabMenu.Items.Add("&Rename...", null, (s, e) => RenameTab(CurrentTab));
+            _tabMenu.Items.Add(BuildColorMenu("Tab &Color"));
             _tabMenu.Items.Add("&New Tab", null, (s, e) => NewTab());
             _tabMenu.Items.Add(new ToolStripSeparator());
             _tabMenu.Items.Add("Move &Left", null, (s, e) => MoveCurrentTab(-1));
             _tabMenu.Items.Add("Move Righ&t", null, (s, e) => MoveCurrentTab(+1));
             _tabMenu.Items.Add(new ToolStripSeparator());
+            var tabMenuSaveCopy = new ToolStripMenuItem("Save a Copy in Notes &Folder", null, (s, e) => SaveCopyInNotesFolder(CurrentTab));
+            _tabMenu.Items.Add(tabMenuSaveCopy);
             _tabMenu.Items.Add("&Close Tab", null, (s, e) => CloseTab(CurrentTab));
+            _tabMenu.Opening += (s, e) => tabMenuSaveCopy.Visible = CurrentTab?.IsExternal == true;
+
+            _editorMenu = BuildEditorMenu();
 
             // Menus
             var menu = new MenuStrip();
@@ -109,42 +89,70 @@ namespace TabbedNotepad
             file.DropDownItems.Add(Item("&Rename Tab...", Keys.F2, (s, e) => RenameTab(CurrentTab)));
             file.DropDownItems.Add(Item("&Close Tab", Keys.Control | Keys.W, (s, e) => CloseTab(CurrentTab)));
             file.DropDownItems.Add(new ToolStripSeparator());
-            file.DropDownItems.Add(Item("&Open...", Keys.Control | Keys.O, (s, e) => OpenFolder()));
+            file.DropDownItems.Add(Item("&Open Text File...", Keys.Control | Keys.O, (s, e) => OpenTextFiles()));
+            file.DropDownItems.Add(Item("Open &Folder...", Keys.Control | Keys.Shift | Keys.O, (s, e) => OpenFolder()));
+            file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add(Item("&Save", Keys.Control | Keys.S, (s, e) => SaveNow()));
             file.DropDownItems.Add(Item("Save &All Tabs As...", Keys.Control | Keys.Shift | Keys.S, (s, e) => SaveAllTabsAs()));
-            file.DropDownItems.Add(Item("Save This Tab As &Text File...", Keys.None, (s, e) => ExportCurrentTab()));
+            file.DropDownItems.Add(Item("Save a Cop&y of This Tab As...", Keys.None, (s, e) => ExportCurrentTab()));
+            _saveCopyToNotesItem = Item("Save a Copy in Notes F&older", Keys.None, (s, e) => SaveCopyInNotesFolder(CurrentTab));
+            file.DropDownItems.Add(_saveCopyToNotesItem);
             file.DropDownItems.Add(new ToolStripSeparator());
-            file.DropDownItems.Add(Item("Show Notes &Folder", Keys.None, (s, e) => ShowNotesFolder()));
+            file.DropDownItems.Add(Item("Show Notes Fol&der", Keys.None, (s, e) => ShowNotesFolder()));
             file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add(Item("E&xit", Keys.None, (s, e) => Close()));
+            file.DropDownOpening += (s, e) => _saveCopyToNotesItem.Enabled = CurrentTab?.IsExternal == true;
 
             var edit = new ToolStripMenuItem("&Edit");
-            edit.DropDownItems.Add(Item("&Undo", Keys.Control | Keys.Z, (s, e) => CurrentEditor?.Undo()));
+            var undo = Item("&Undo", Keys.Control | Keys.Z, (s, e) => CurrentEditor?.Undo());
+            var redo = Item("&Redo", Keys.Control | Keys.Y, (s, e) => CurrentEditor?.Redo());
+            edit.DropDownItems.Add(undo);
+            edit.DropDownItems.Add(redo);
             edit.DropDownItems.Add(new ToolStripSeparator());
             edit.DropDownItems.Add(Item("Cu&t", Keys.Control | Keys.X, (s, e) => CurrentEditor?.Cut()));
             edit.DropDownItems.Add(Item("&Copy", Keys.Control | Keys.C, (s, e) => CurrentEditor?.Copy()));
-            edit.DropDownItems.Add(Item("&Paste", Keys.Control | Keys.V, (s, e) => PastePlainText()));
-            edit.DropDownItems.Add(Item("De&lete", Keys.None, (s, e) => { if (CurrentEditor != null) CurrentEditor.SelectedText = ""; }));
+            edit.DropDownItems.Add(Item("&Paste", Keys.Control | Keys.V, (s, e) => CurrentEditor?.PastePlainText()));
+            edit.DropDownItems.Add(Item("De&lete", Keys.None, (s, e) => CurrentEditor?.ReplaceSelection("")));
             edit.DropDownItems.Add(new ToolStripSeparator());
-            edit.DropDownItems.Add(Item("&Find...", Keys.Control | Keys.F, (s, e) => ShowFind()));
-            edit.DropDownItems.Add(Item("Find &Next", Keys.F3, (s, e) => FindAgain()));
+            edit.DropDownItems.Add(Item("&Search Tabs", Keys.Control | Keys.F, (s, e) => FocusSearchBox()));
+            edit.DropDownItems.Add(Item("&Find...", Keys.Control | Keys.Shift | Keys.F, (s, e) => ShowFind()));
+            edit.DropDownItems.Add(Item("Find &Next", Keys.F3, (s, e) => FindAgain(forward: true)));
+            edit.DropDownItems.Add(Item("Find Pre&vious", Keys.Shift | Keys.F3, (s, e) => FindAgain(forward: false)));
             edit.DropDownItems.Add(new ToolStripSeparator());
             edit.DropDownItems.Add(Item("Select &All", Keys.Control | Keys.A, (s, e) => CurrentEditor?.SelectAll()));
             edit.DropDownItems.Add(Item("Time/&Date", Keys.F5, (s, e) => InsertTimeDate()));
+            edit.DropDownOpening += (s, e) =>
+            {
+                undo.Enabled = CurrentEditor?.CanUndo == true;
+                redo.Enabled = CurrentEditor?.CanRedo == true;
+            };
 
             var format = new ToolStripMenuItem("F&ormat");
             _wordWrapItem = Item("&Word Wrap", Keys.None, (s, e) => SetWordWrap(!_wordWrapItem.Checked));
             format.DropDownItems.Add(_wordWrapItem);
             format.DropDownItems.Add(Item("&Font...", Keys.None, (s, e) => ChooseFont()));
+            format.DropDownItems.Add(new ToolStripSeparator());
+            _multiRowItem = Item("Tabs in &Multiple Rows", Keys.None, (s, e) => SetMultiRow(!_multiRowItem.Checked));
+            format.DropDownItems.Add(_multiRowItem);
+            format.DropDownItems.Add(BuildColorMenu("Tab &Color"));
 
             var help = new ToolStripMenuItem("&Help");
+            help.DropDownItems.Add(Item("&User Guide", Keys.F1, (s, e) => NoteEditor.OpenLink(UserGuideUrl)));
             help.DropDownItems.Add(Item("&Keyboard Shortcuts", Keys.None, (s, e) => ShowHelp()));
 
-            // A "+" button on the menu bar to add a tab with one click.
+            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, help });
+            // Right side of the menu bar: search, move-tab arrows and "+ New Tab".
+            // Right-aligned items are placed from the right edge inwards, so they're added in reverse.
             var plus = new ToolStripMenuItem("+ New Tab") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "New tab (Ctrl+T)" };
             plus.Click += (s, e) => NewTab();
-
-            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, help, plus });
+            var moveRight = new ToolStripMenuItem("►") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "Move tab right (Ctrl+Shift+Page Down)" };
+            moveRight.Click += (s, e) => MoveCurrentTab(+1);
+            var moveLeft = new ToolStripMenuItem("◄") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "Move tab left (Ctrl+Shift+Page Up)" };
+            moveLeft.Click += (s, e) => MoveCurrentTab(-1);
+            menu.Items.Add(plus);
+            menu.Items.Add(moveRight);
+            menu.Items.Add(moveLeft);
+            AddSearchBar(menu);
             MainMenuStrip = menu;
 
             var status = new StatusStrip();
@@ -157,7 +165,7 @@ namespace TabbedNotepad
                 TextAlign = ContentAlignment.MiddleLeft,
                 BorderSides = ToolStripStatusLabelBorderSides.Left,
             };
-            _folderLabel.Click += (s, e) => ShowNotesFolder();
+            _folderLabel.Click += (s, e) => ShowNotesFolder(currentFile: true);
             _positionLabel = new ToolStripStatusLabel { AutoSize = true, BorderSides = ToolStripStatusLabelBorderSides.Left };
             status.Items.Add(_statusLabel);
             status.Items.Add(_folderLabel);
@@ -182,7 +190,7 @@ namespace TabbedNotepad
         }
 
         private NoteTab CurrentTab => _tabs.SelectedTab as NoteTab;
-        private TextBox CurrentEditor => CurrentTab?.Editor;
+        private NoteEditor CurrentEditor => CurrentTab?.Editor;
         private IEnumerable<NoteTab> AllTabs => _tabs.TabPages.Cast<NoteTab>();
 
         // ---------------------------------------------------------------- loading & saving
@@ -197,6 +205,7 @@ namespace TabbedNotepad
                 _tabs.TabPages.Remove(old);
                 old.Dispose();
             }
+
             List<NoteData> notes;
             try
             {
@@ -218,15 +227,34 @@ namespace TabbedNotepad
                 catch { /* keep default font */ }
             }
             _wordWrapItem.Checked = !settings.TryGetValue("wordwrap", out string wrap) || wrap != "0";
+            _multiRowItem.Checked = !settings.TryGetValue("multirow", out string multiRow) || multiRow != "0";
+            _tabs.Multiline = _multiRowItem.Checked;
             if (applyWindowSettings)
                 RestoreWindowBounds(settings.TryGetValue("window", out string bounds) ? bounds : null);
 
             foreach (var note in notes)
-                AddTab(new NoteTab(note.Id, note.Title, note.Text));
+            {
+                var tab = new NoteTab(note.Id, note.Title, note.Text)
+                {
+                    ExternalPath = note.ExternalPath,
+                    FileEncoding = note.FileEncoding,
+                    FileTimestampUtc = note.FileTimestampUtc,
+                };
+                if (note.Color.HasValue)
+                {
+                    tab.TabColor = note.Color.Value;
+                }
+                else
+                {
+                    tab.TabColor = TabColors.PickRandom(AllTabs.Select(t => t.TabColor), AllTabs.LastOrDefault()?.TabColor);
+                    _indexDirty = true;
+                }
+                AddTab(tab);
+            }
 
             if (_tabs.TabCount == 0)
             {
-                AddTab(new NoteTab(UniqueId("My notes", null), "My notes", ""));
+                AddTab(new NoteTab(UniqueId("My notes", null), "My notes", "") { TabColor = TabColors.PickRandom(new Color[0]) });
                 _indexDirty = true;
             }
 
@@ -239,6 +267,14 @@ namespace TabbedNotepad
             UpdateFolderLabel();
             OnSelectedTabChanged();
             SetStatus("Notes are saved automatically");
+
+            if (_store.MissingFiles.Count > 0)
+            {
+                _indexDirty = true;
+                BeginInvoke((Action)(() => MessageBox.Show(this,
+                    "These files were open in tabs but can't be found any more (moved, renamed or deleted?):\n\n  " +
+                    string.Join("\n  ", _store.MissingFiles), AppName, MessageBoxButtons.OK, MessageBoxIcon.Information)));
+            }
         }
 
         /// <summary>
@@ -247,7 +283,7 @@ namespace TabbedNotepad
         /// </summary>
         private void RenameFilesToTabNames()
         {
-            foreach (var tab in AllTabs)
+            foreach (var tab in AllTabs.Where(t => !t.IsExternal))
             {
                 string wanted = UniqueId(tab.Text, tab);
                 if (wanted == tab.Id) continue;
@@ -283,33 +319,54 @@ namespace TabbedNotepad
 
         private void UpdateFolderLabel()
         {
+            var tab = CurrentTab;
+            string path = tab != null && tab.IsExternal ? tab.ExternalPath : _store.Folder;
+            string shown = path;
             // Shorten very long paths from the middle; the tooltip always has the full path.
-            string folder = _store.Folder;
-            if (folder.Length > 60)
-                folder = folder.Substring(0, 20) + "..." + folder.Substring(folder.Length - 35);
-            _folderLabel.Text = "Notes folder: " + folder;
-            _folderLabel.ToolTipText = _store.Folder + "\nClick to open this folder";
+            if (shown.Length > 60)
+                shown = shown.Substring(0, 20) + "..." + shown.Substring(shown.Length - 35);
+            if (tab != null && tab.IsExternal)
+            {
+                _folderLabel.Text = "File: " + shown;
+                _folderLabel.ToolTipText = path + "\nThis tab is saved in this file. Click to show it in its folder.";
+            }
+            else
+            {
+                _folderLabel.Text = "Notes folder: " + shown;
+                _folderLabel.ToolTipText = path + "\nClick to open this folder";
+            }
         }
 
         private void AddTab(NoteTab tab, int index = -1)
         {
             tab.Editor.Font = _editorFont;
             tab.Editor.WordWrap = _wordWrapItem.Checked;
-            tab.Editor.ScrollBars = _wordWrapItem.Checked ? ScrollBars.Vertical : ScrollBars.Both;
+            tab.Editor.ScrollBars = _wordWrapItem.Checked ? RichTextBoxScrollBars.Vertical : RichTextBoxScrollBars.Both;
+            tab.Editor.ClearUndo();
+            tab.Editor.ContextMenuStrip = _editorMenu;
             tab.Editor.TextChanged += (s, e) =>
             {
                 if (_loading) return;
                 tab.Dirty = true;
                 ScheduleSave();
                 UpdatePosition();
+                OnEditorTextChanged(tab);
             };
-            tab.Editor.KeyUp += (s, e) => UpdatePosition();
-            tab.Editor.MouseUp += (s, e) => UpdatePosition();
+            tab.Editor.SelectionChanged += (s, e) => { if (tab == CurrentTab) UpdatePosition(); };
+            tab.LinkCopied += (s, url) => SetStatus("Link copied: " + url);
+            UpdateTabToolTip(tab);
 
             if (index < 0 || index >= _tabs.TabCount)
                 _tabs.TabPages.Add(tab);
             else
                 _tabs.TabPages.Insert(index, tab);
+        }
+
+        private void UpdateTabToolTip(NoteTab tab)
+        {
+            tab.ToolTipText = tab.IsExternal
+                ? tab.Text + "\nFile: " + tab.ExternalPath
+                : tab.Text + "\nSaved as: " + _store.NotePath(tab.Id);
         }
 
         private void ScheduleSave()
@@ -324,10 +381,17 @@ namespace TabbedNotepad
             _saveTimer.Stop();
             try
             {
-                foreach (var tab in AllTabs.Where(t => t.Dirty))
+                foreach (var tab in AllTabs.Where(t => t.Dirty).ToList())
                 {
-                    _store.SaveNote(tab.ToData());
-                    tab.Dirty = false;
+                    if (tab.IsExternal)
+                    {
+                        SaveExternal(tab);
+                    }
+                    else
+                    {
+                        _store.SaveNote(tab.ToData());
+                        tab.Dirty = false;
+                    }
                 }
 
                 var settings = _store.Settings;
@@ -344,6 +408,7 @@ namespace TabbedNotepad
                 {
                     settings["font"] = new FontConverter().ConvertToInvariantString(_editorFont);
                     settings["wordwrap"] = _wordWrapItem.Checked ? "1" : "0";
+                    settings["multirow"] = _multiRowItem.Checked ? "1" : "0";
                     _store.SaveIndex(AllTabs.Select(t => t.ToData()));
                     _indexDirty = false;
                 }
@@ -366,6 +431,85 @@ namespace TabbedNotepad
             }
         }
 
+        /// <summary>Saves a tab opened from a text file back into that file, in the file's own encoding.</summary>
+        private void SaveExternal(NoteTab tab)
+        {
+            if (_resolvingConflict) return;   // a question about this file is already on screen
+            string path = tab.ExternalPath;
+            if (File.Exists(path) && File.GetLastWriteTimeUtc(path) != tab.FileTimestampUtc)
+            {
+                // Someone else changed the file since we opened or last saved it.
+                _resolvingConflict = true;
+                DialogResult answer;
+                try
+                {
+                    answer = MessageBox.Show(this,
+                        Path.GetFileName(path) + " was changed by another program while it was open here.\n\n" +
+                        "Yes: save your version from this tab (replacing the other changes)\n" +
+                        "No: load the other version into this tab (your recent changes here are dropped)",
+                        AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
+                }
+                finally
+                {
+                    _resolvingConflict = false;
+                }
+                if (answer == DialogResult.No)
+                {
+                    ReloadExternal(tab);
+                    return;
+                }
+            }
+
+            tab.FileEncoding = NoteStore.WriteTextFile(path, tab.Editor.PlainText, tab.FileEncoding);
+            tab.FileTimestampUtc = File.GetLastWriteTimeUtc(path);
+            tab.Dirty = false;
+        }
+
+        private void ReloadExternal(NoteTab tab)
+        {
+            string text = NoteStore.ReadTextFile(tab.ExternalPath, out var encoding);
+            int caret = tab.Editor.SelectionStart;
+            SetEditorText(tab, text);
+            tab.Editor.Select(Math.Min(caret, tab.Editor.TextLength), 0);
+            tab.FileEncoding = encoding;
+            tab.FileTimestampUtc = File.GetLastWriteTimeUtc(tab.ExternalPath);
+            tab.Dirty = false;
+        }
+
+        /// <summary>Replaces a tab's whole text without marking it as changed (and without undo history).</summary>
+        private void SetEditorText(NoteTab tab, string text)
+        {
+            bool wasLoading = _loading;
+            _loading = true;
+            try
+            {
+                tab.Editor.Text = text;
+                tab.Editor.ClearUndo();
+            }
+            finally
+            {
+                _loading = wasLoading;
+            }
+        }
+
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            // Pick up changes made to opened text files by other programs while we were in the background.
+            foreach (var tab in AllTabs.Where(t => t.IsExternal && !t.Dirty))
+            {
+                try
+                {
+                    if (File.Exists(tab.ExternalPath) && File.GetLastWriteTimeUtc(tab.ExternalPath) != tab.FileTimestampUtc)
+                        ReloadExternal(tab);
+                }
+                catch
+                {
+                    // File busy; try again next time.
+                }
+            }
+        }
+
         private void SetStatus(string text) => _statusLabel.Text = text;
 
         // ---------------------------------------------------------------- tab actions
@@ -375,7 +519,11 @@ namespace TabbedNotepad
             string name = InputDialog.Ask(this, "New Tab", "Name for the new tab (for example a project name):", "Project " + (_tabs.TabCount + 1));
             if (name == null) return;
 
-            var tab = new NoteTab(UniqueId(name, null), name, "") { Dirty = true };
+            var tab = new NoteTab(UniqueId(name, null), name, "")
+            {
+                Dirty = true,
+                TabColor = TabColors.PickRandom(AllTabs.Select(t => t.TabColor), AllTabs.LastOrDefault()?.TabColor),
+            };
             AddTab(tab);
             _tabs.SelectedTab = tab;
             _indexDirty = true;
@@ -389,19 +537,23 @@ namespace TabbedNotepad
             string name = InputDialog.Ask(this, "Rename Tab", "New name for this tab:", tab.Text);
             if (name == null || name == tab.Text) return;
 
-            // Save first so the file being renamed has the latest text, then rename it to match the tab.
-            SaveAll(showStatus: false, quiet: true);
-            string newId = UniqueId(name, tab);
-            try
+            if (!tab.IsExternal)
             {
-                _store.RenameNote(tab.Id, newId);
-                tab.Id = newId;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "The tab was renamed, but its file could not be renamed:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                // Save first so the file being renamed has the latest text, then rename it to match the tab.
+                SaveAll(showStatus: false, quiet: true);
+                string newId = UniqueId(name, tab);
+                try
+                {
+                    _store.RenameNote(tab.Id, newId);
+                    tab.Id = newId;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "The tab was renamed, but its file could not be renamed:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
             }
             tab.Text = name;
+            UpdateTabToolTip(tab);
             _indexDirty = true;
             UpdateTitle();
             SaveAll(showStatus: false);
@@ -410,27 +562,37 @@ namespace TabbedNotepad
         private void CloseTab(NoteTab tab)
         {
             if (tab == null) return;
-            if (tab.Editor.TextLength > 0)
-            {
-                var answer = MessageBox.Show(this,
-                    "Close the tab \"" + tab.Text + "\"?\n\nIts text will be moved to the \"Closed tabs\" folder inside your notes folder, so you can still recover it.",
-                    AppName, MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-                if (answer != DialogResult.OK) return;
-            }
 
-            try
+            if (tab.IsExternal)
             {
-                _store.ArchiveNote(tab.ToData());
+                // The text lives in its own file: save it there and just close the tab.
+                if (tab.Dirty && !SaveAll(showStatus: false))
+                    return;
             }
-            catch (Exception ex)
+            else
             {
-                MessageBox.Show(this, "Could not close the tab:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
+                if (tab.Editor.TextLength > 0)
+                {
+                    var answer = MessageBox.Show(this,
+                        "Close the tab \"" + tab.Text + "\"?\n\nIts text will be moved to the \"Closed tabs\" folder inside your notes folder, so you can still recover it.",
+                        AppName, MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+                    if (answer != DialogResult.OK) return;
+                }
+
+                try
+                {
+                    _store.ArchiveNote(tab.ToData());
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Could not close the tab:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
             }
 
             // Select the neighbouring tab first so focus never sits on a page being removed.
             if (_tabs.TabCount == 1)
-                AddTab(new NoteTab(UniqueId("My notes", tab), "My notes", ""));
+                AddTab(new NoteTab(UniqueId("My notes", tab), "My notes", "") { TabColor = TabColors.PickRandom(new[] { tab.TabColor }) });
             int index = _tabs.TabPages.IndexOf(tab);
             _tabs.SelectedIndex = index + 1 < _tabs.TabCount ? index + 1 : index - 1;
             _tabs.TabPages.Remove(tab);
@@ -444,6 +606,7 @@ namespace TabbedNotepad
             var tab = CurrentTab;
             if (tab == null) return;
             MoveTab(tab, _tabs.TabPages.IndexOf(tab) + delta);
+            tab.Editor.Focus();
         }
 
         private void MoveTab(NoteTab tab, int newIndex)
@@ -465,8 +628,10 @@ namespace TabbedNotepad
             if (_loading) return;
             UpdateTitle();
             UpdatePosition();
-            // Don't steal focus from the Find dialog when a search jumps to another tab.
-            if (ActiveForm == this) CurrentEditor?.Focus();
+            UpdateFolderLabel();
+            OnSearchTabChanged();
+            // Don't steal focus from the Find dialog or the search box when a search jumps to another tab.
+            if (ActiveForm == this && !SearchBoxFocused) CurrentEditor?.Focus();
             ScheduleSave();
         }
 
@@ -480,6 +645,93 @@ namespace TabbedNotepad
             int line = editor.GetLineFromCharIndex(pos);
             int col = pos - editor.GetFirstCharIndexFromLine(line);
             _positionLabel.Text = "Ln " + (line + 1) + ", Col " + (col + 1);
+        }
+
+        // ---------------------------------------------------------------- tab colors, rows and drawing
+
+        private ToolStripMenuItem BuildColorMenu(string text)
+        {
+            var menu = new ToolStripMenuItem(text);
+            int size = Dpi.Scale(14);
+            foreach (var (name, color) in TabColors.Palette)
+            {
+                var c = color;
+                var item = new ToolStripMenuItem(name, TabColors.Swatch(c, size), (s, e) => SetTabColor(CurrentTab, c));
+                menu.DropDownItems.Add(item);
+            }
+            menu.DropDownItems.Add(new ToolStripSeparator());
+            menu.DropDownItems.Add("&Random Color", null, (s, e) =>
+            {
+                var tab = CurrentTab;
+                if (tab == null) return;
+                SetTabColor(tab, TabColors.PickRandom(AllTabs.Where(t => t != tab).Select(t => t.TabColor), tab.TabColor));
+            });
+            menu.DropDownItems.Add("&Custom Color...", null, (s, e) => ChooseCustomColor(CurrentTab));
+            menu.DropDownOpening += (s, e) =>
+            {
+                int current = CurrentTab?.TabColor.ToArgb() ?? 0;
+                foreach (var item in menu.DropDownItems.OfType<ToolStripMenuItem>())
+                    item.Checked = item.Image != null && TabColors.Palette.Any(p => p.Name == item.Text && p.Color.ToArgb() == current);
+            };
+            return menu;
+        }
+
+        private void SetTabColor(NoteTab tab, Color color)
+        {
+            if (tab == null) return;
+            tab.TabColor = color;
+            _tabs.Invalidate();
+            _indexDirty = true;
+            ScheduleSave();
+        }
+
+        private void ChooseCustomColor(NoteTab tab)
+        {
+            if (tab == null) return;
+            using (var dialog = new ColorDialog { Color = tab.TabColor, FullOpen = true, AnyColor = true })
+            {
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                    SetTabColor(tab, dialog.Color);
+            }
+        }
+
+        private void SetMultiRow(bool multiRow)
+        {
+            _multiRowItem.Checked = multiRow;
+            _tabs.Multiline = multiRow;
+            _indexDirty = true;
+            ScheduleSave();
+        }
+
+        private void Tabs_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= _tabs.TabCount) return;
+            var tab = (NoteTab)_tabs.TabPages[e.Index];
+            bool selected = e.Index == _tabs.SelectedIndex;
+            var g = e.Graphics;
+            Rectangle r = e.Bounds;
+
+            Color color = tab.TabColor.IsEmpty ? SystemColors.Control : tab.TabColor;
+            using (var fill = new SolidBrush(selected ? color : TabColors.Lighter(color)))
+                g.FillRectangle(fill, r);
+            if (selected)
+            {
+                using (var pen = new Pen(TabColors.Darker(color), Dpi.Scale(2)) { Alignment = System.Drawing.Drawing2D.PenAlignment.Inset })
+                    g.DrawRectangle(pen, r.X, r.Y, r.Width - 1, r.Height - 1);
+            }
+            else
+            {
+                using (var pen = new Pen(TabColors.Darker(color, 0.8)))
+                    g.DrawRectangle(pen, r.X, r.Y, r.Width - 1, r.Height - 1);
+            }
+
+            // Tabs opened from a text file elsewhere are shown in italics.
+            using (var font = tab.IsExternal ? new Font(_tabs.Font, FontStyle.Italic) : null)
+            {
+                TextRenderer.DrawText(g, tab.Text, font ?? _tabs.Font, r, Color.Black,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
         }
 
         private NoteTab TabAt(Point location)
@@ -499,7 +751,8 @@ namespace TabbedNotepad
         private void Tabs_MouseMove(object sender, MouseEventArgs e)
         {
             if (_dragTab == null || e.Button != MouseButtons.Left) return;
-            if (Math.Abs(e.X - _dragStart.X) < SystemInformation.DragSize.Width) return;
+            if (Math.Abs(e.X - _dragStart.X) < SystemInformation.DragSize.Width &&
+                Math.Abs(e.Y - _dragStart.Y) < SystemInformation.DragSize.Height) return;
 
             var over = TabAt(e.Location);
             if (over == null || over == _dragTab) return;
@@ -509,8 +762,9 @@ namespace TabbedNotepad
             int from = _tabs.TabPages.IndexOf(_dragTab);
             int to = _tabs.TabPages.IndexOf(over);
             Rectangle target = _tabs.GetTabRect(to);
-            int width = _tabs.GetTabRect(from).Width;
-            bool farEnough = to > from ? e.X >= target.Right - width : e.X <= target.Left + width;
+            Rectangle source = _tabs.GetTabRect(from);
+            bool otherRow = target.Y != source.Y;
+            bool farEnough = otherRow || (to > from ? e.X >= target.Right - source.Width : e.X <= target.Left + source.Width);
             if (farEnough)
                 MoveTab(_dragTab, to);
         }
@@ -534,22 +788,45 @@ namespace TabbedNotepad
 
         // ---------------------------------------------------------------- editing
 
-        private void PastePlainText()
+        private ContextMenuStrip BuildEditorMenu()
         {
-            var editor = CurrentEditor;
-            if (editor == null) return;
-            string text;
-            try
+            var menu = new ContextMenuStrip();
+            var openLink = new ToolStripMenuItem("&Open Link");
+            var copyLink = new ToolStripMenuItem("Copy &Link");
+            var linkSeparator = new ToolStripSeparator();
+            var undo = new ToolStripMenuItem("&Undo", null, (s, e) => CurrentEditor?.Undo());
+            var redo = new ToolStripMenuItem("&Redo", null, (s, e) => CurrentEditor?.Redo());
+            var cut = new ToolStripMenuItem("Cu&t", null, (s, e) => CurrentEditor?.Cut());
+            var copy = new ToolStripMenuItem("&Copy", null, (s, e) => CurrentEditor?.Copy());
+            var paste = new ToolStripMenuItem("&Paste", null, (s, e) => CurrentEditor?.PastePlainText());
+            var delete = new ToolStripMenuItem("&Delete", null, (s, e) => CurrentEditor?.ReplaceSelection(""));
+            var selectAll = new ToolStripMenuItem("Select &All", null, (s, e) => CurrentEditor?.SelectAll());
+            menu.Items.AddRange(new ToolStripItem[]
             {
-                if (!Clipboard.ContainsText()) return;
-                text = Clipboard.GetText();
-            }
-            catch (System.Runtime.InteropServices.ExternalException)
+                openLink, copyLink, linkSeparator,
+                undo, redo, new ToolStripSeparator(), cut, copy, paste, delete, new ToolStripSeparator(), selectAll,
+            });
+
+            string linkUrl = null;
+            openLink.Click += (s, e) => NoteEditor.OpenLink(linkUrl);
+            copyLink.Click += (s, e) =>
             {
-                return; // clipboard is busy in another program
-            }
-            // Text copied from some programs uses bare \n line breaks, which a TextBox would not show.
-            editor.SelectedText = text.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n");
+                try { Clipboard.SetText(linkUrl); SetStatus("Link copied: " + linkUrl); }
+                catch (ExternalException) { /* clipboard busy */ }
+            };
+            menu.Opening += (s, e) =>
+            {
+                var editor = CurrentEditor;
+                if (editor == null) { e.Cancel = true; return; }
+                var link = editor.LinkAtPoint(editor.PointToClient(Cursor.Position));
+                linkUrl = link?.Url;
+                openLink.Visible = copyLink.Visible = linkSeparator.Visible = link != null;
+                undo.Enabled = editor.CanUndo;
+                redo.Enabled = editor.CanRedo;
+                bool hasSelection = editor.SelectionLength > 0;
+                cut.Enabled = copy.Enabled = delete.Enabled = hasSelection;
+            };
+            return menu;
         }
 
         private void InsertTimeDate()
@@ -557,7 +834,7 @@ namespace TabbedNotepad
             var editor = CurrentEditor;
             if (editor == null) return;
             DateTime now = DateTime.Now;
-            editor.SelectedText = now.ToShortTimeString() + " " + now.ToShortDateString();
+            editor.ReplaceSelection(now.ToShortTimeString() + " " + now.ToShortDateString());
         }
 
         private void SetWordWrap(bool wrap)
@@ -566,7 +843,7 @@ namespace TabbedNotepad
             foreach (var tab in AllTabs)
             {
                 tab.Editor.WordWrap = wrap;
-                tab.Editor.ScrollBars = wrap ? ScrollBars.Vertical : ScrollBars.Both;
+                tab.Editor.ScrollBars = wrap ? RichTextBoxScrollBars.Vertical : RichTextBoxScrollBars.Both;
             }
             _indexDirty = true;
             ScheduleSave();
@@ -584,241 +861,7 @@ namespace TabbedNotepad
             }
         }
 
-        // ---------------------------------------------------------------- find
-
-        private void ShowFind()
-        {
-            if (_findDialog == null)
-                _findDialog = new FindDialog(Find);
-
-            var editor = CurrentEditor;
-            if (editor != null && editor.SelectionLength > 0 && editor.SelectedText.IndexOf('\n') < 0)
-                _findDialog.SearchText = editor.SelectedText;
-
-            if (!_findDialog.Visible)
-                _findDialog.Show(this);
-            _findDialog.Activate();
-        }
-
-        private void FindAgain()
-        {
-            if (_findDialog == null || _findDialog.SearchText.Length == 0)
-                ShowFind();
-            else
-                _findDialog.FindNext();
-        }
-
-        private bool Find(string text, bool matchCase, bool allTabs)
-        {
-            var comparison = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-            int count = _tabs.TabCount;
-            int start = _tabs.SelectedIndex;
-            if (start < 0) return false;
-
-            // Search the rest of the current tab, then the following tabs (or wrap around in this tab).
-            var editor = CurrentEditor;
-            int from = editor.SelectionStart + editor.SelectionLength;
-            if (TrySelect(CurrentTab, text, from, comparison)) return true;
-
-            if (allTabs)
-            {
-                for (int i = 1; i <= count; i++)
-                    if (TrySelect((NoteTab)_tabs.TabPages[(start + i) % count], text, 0, comparison)) return true;
-            }
-            else if (TrySelect(CurrentTab, text, 0, comparison))
-            {
-                return true;
-            }
-
-            MessageBox.Show(_findDialog != null && _findDialog.Visible ? (IWin32Window)_findDialog : this,
-                "Cannot find \"" + text + "\"", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return false;
-        }
-
-        private bool TrySelect(NoteTab tab, string text, int from, StringComparison comparison)
-        {
-            string content = tab.Editor.Text;
-            if (from > content.Length) return false;
-            int found = content.IndexOf(text, from, comparison);
-            if (found < 0) return false;
-
-            if (_tabs.SelectedTab != tab) _tabs.SelectedTab = tab;
-            tab.Editor.Select(found, text.Length);
-            tab.Editor.ScrollToCaret();
-            UpdatePosition();
-            return true;
-        }
-
         // ---------------------------------------------------------------- misc
-
-        private void SaveNow()
-        {
-            _indexDirty = true;
-            if (SaveAll(showStatus: true))
-                SetStatus("All tabs saved at " + DateTime.Now.ToString("t"));
-        }
-
-        /// <summary>
-        /// Like "Save As" in Notepad, but for all tabs at once: saves every tab into a folder the
-        /// user picks, and keeps saving there from then on.
-        /// </summary>
-        private void SaveAllTabsAs()
-        {
-            SaveAll(showStatus: false, quiet: true);
-            string folder = FolderPicker.Pick(this, "Save All Tabs As - choose a folder for your notes", "Save here", _store.Folder);
-            if (folder == null) return;
-            if (SameFolder(folder, _store.Folder))
-            {
-                SaveNow();
-                return;
-            }
-
-            NoteStore target;
-            try
-            {
-                target = new NoteStore(folder);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Could not use this folder:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            // Never replace anything already in that folder without asking.
-            var clashes = AllTabs.Where(t => target.NoteFileExists(t.Id)).Select(t => t.Id + ".txt").ToList();
-            if (target.HasIndex || clashes.Count > 0)
-            {
-                string message = target.HasIndex
-                    ? "This folder already has notes saved by " + AppName + ". Saving here replaces its tab list with your current tabs."
-                    : "Some files in this folder have the same names as your tabs.";
-                if (clashes.Count > 0)
-                    message += "\n\nThese files will be replaced:\n  " + string.Join("\n  ", clashes.Take(10)) + (clashes.Count > 10 ? "\n  ..." : "");
-                message += "\n\nContinue? (To open the notes in that folder instead, choose No and use File > Open.)";
-                if (MessageBox.Show(this, message, AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
-                    return;
-            }
-
-            var oldStore = _store;
-            foreach (var pair in oldStore.Settings) target.Settings[pair.Key] = pair.Value;
-            _store = target;
-            foreach (var tab in AllTabs) tab.Dirty = true;
-            _indexDirty = true;
-            if (!SaveAll(showStatus: false, quiet: true))
-            {
-                _store = oldStore;
-                _indexDirty = true;
-                MessageBox.Show(this, "Your tabs could not be saved in\n" + folder + "\n\n" + _statusLabel.Text + "\n\nThey are still saved in\n" + oldStore.Folder,
-                    AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                ScheduleSave();
-                return;
-            }
-
-            RememberFolder(folder);
-            UpdateFolderLabel();
-            MessageBox.Show(this,
-                "Saved " + _tabs.TabCount + (_tabs.TabCount == 1 ? " tab" : " tabs") + " in:\n" + folder +
-                "\n\nFrom now on your notes are saved there automatically, one .txt file per tab." +
-                "\n\nThe earlier copy in " + oldStore.Folder + " was left as it was.",
-                AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-        /// <summary>Switches to the notes in another folder (or a folder of .txt files, each opened as a tab).</summary>
-        private void OpenFolder()
-        {
-            if (!SaveAll(showStatus: false, quiet: true))
-            {
-                MessageBox.Show(this, "Your current notes could not be saved, so nothing else was opened:\n\n" + _statusLabel.Text, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            string folder = FolderPicker.Pick(this, "Open - choose a folder with notes", "Open", _store.Folder);
-            if (folder == null || SameFolder(folder, _store.Folder)) return;
-
-            NoteStore target;
-            int textFiles;
-            try
-            {
-                target = new NoteStore(folder);
-                textFiles = Directory.GetFiles(folder, "*.txt").Count(f => string.Equals(Path.GetExtension(f), ".txt", StringComparison.OrdinalIgnoreCase));
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Could not open this folder:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (!target.HasIndex)
-            {
-                if (textFiles == 0)
-                {
-                    MessageBox.Show(this, "There are no notes (.txt files) in this folder.\n\nTo save your current tabs there, use File > Save All Tabs As.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                if (MessageBox.Show(this, "This folder has " + textFiles + " text " + (textFiles == 1 ? "file" : "files") + ". Open each one as a tab?\n\nChanges will be saved back to these files automatically.",
-                        AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                    return;
-            }
-
-            _store = target;
-            LoadNotes(applyWindowSettings: false);
-            RememberFolder(folder);
-            SetStatus("Opened " + _tabs.TabCount + (_tabs.TabCount == 1 ? " tab" : " tabs"));
-        }
-
-        private void RememberFolder(string folder)
-        {
-            try
-            {
-                AppConfig.SaveNotesFolder(folder);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Could not remember this folder for next time:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
-
-        private static bool SameFolder(string a, string b)
-        {
-            try
-            {
-                return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'), Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private void ExportCurrentTab()
-        {
-            var tab = CurrentTab;
-            if (tab == null) return;
-            using (var dialog = new SaveFileDialog
-            {
-                Title = "Save This Tab As Text File",
-                Filter = "Text documents (*.txt)|*.txt|All files (*.*)|*.*",
-                FileName = tab.Id + ".txt",
-            })
-            {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                try
-                {
-                    File.WriteAllText(dialog.FileName, tab.Editor.Text, new System.Text.UTF8Encoding(false));
-                    SetStatus("Copy of \"" + tab.Text + "\" saved to " + dialog.FileName);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, "Could not save:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-        }
-
-        private void ShowNotesFolder()
-        {
-            SaveAll(showStatus: false);
-            try { Process.Start("explorer.exe", "\"" + _store.Folder + "\""); }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, AppName); }
-        }
 
         private void ShowHelp()
         {
@@ -829,15 +872,21 @@ namespace TabbedNotepad
                 "  Ctrl+W\tClose tab (or middle-click the tab)\n" +
                 "  Ctrl+Tab\tNext tab  (Ctrl+Shift+Tab: previous)\n" +
                 "  Ctrl+1..9\tJump to tab 1..9\n" +
-                "  Drag a tab to reorder; right-click for more\n\n" +
+                "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the ◄ ► buttons)\n" +
+                "  Right-click a tab for its color and more\n\n" +
                 "Editing\n" +
+                "  Ctrl+Z / Ctrl+Y\tUndo / Redo\n" +
                 "  F5\tInsert time and date\n" +
-                "  Ctrl+F\tFind (can search all tabs)\n" +
-                "  F3\tFind next\n" +
-                "Saving\n" +
+                "  Click a link to open it; hover it for a copy button\n\n" +
+                "Searching\n" +
+                "  Ctrl+F\tSearch box (this tab or all tabs)\n" +
+                "  Ctrl+Shift+F\tFind dialog (with Select All)\n" +
+                "  F3 / Shift+F3\tNext / previous match\n\n" +
+                "Files\n" +
+                "  Ctrl+O\tOpen a text file in a tab\n" +
+                "  Ctrl+Shift+O\tOpen a notes folder\n" +
                 "  Ctrl+S\tSave (saving is automatic anyway)\n" +
-                "  Ctrl+Shift+S\tSave all tabs as... (pick a folder)\n" +
-                "  Ctrl+O\tOpen notes from another folder\n\n" +
+                "  Ctrl+Shift+S\tSave all tabs as... (pick a folder)\n\n" +
                 "Your notes are saved automatically, one .txt file per tab, in:\n" + _store.Folder,
                 "Keyboard Shortcuts - " + AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -846,6 +895,13 @@ namespace TabbedNotepad
         {
             Keys key = keyData & Keys.KeyCode;
             Keys mods = keyData & Keys.Modifiers;
+
+            // Ctrl+Shift+PageUp / PageDown move the current tab.
+            if (mods == (Keys.Control | Keys.Shift) && (key == Keys.PageUp || key == Keys.PageDown))
+            {
+                MoveCurrentTab(key == Keys.PageUp ? -1 : 1);
+                return true;
+            }
 
             // Ctrl+Tab / Ctrl+Shift+Tab and Ctrl+PageDown / Ctrl+PageUp switch tabs.
             if (_tabs.TabCount > 1 && (mods & Keys.Control) != 0 && (mods & Keys.Alt) == 0)

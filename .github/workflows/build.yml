@@ -19,3 +19,19 @@ jobs:
         with:
           name: TabbedNotepad
           path: src/bin/Release/net48/TabbedNotepad.exe
+
+      # Opens the app on the Windows runner, checks the main features (undo, search, saving,
+      # opening text files...) and takes the screenshots used in docs/user-guide.md.
+      - name: Build feature checks
+        run: dotnet build tools/Screenshots/Screenshots.csproj -c Release
+
+      - name: Run feature checks and take screenshots
+        timeout-minutes: 5
+        run: tools/Screenshots/bin/Release/net48/Screenshots.exe screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
