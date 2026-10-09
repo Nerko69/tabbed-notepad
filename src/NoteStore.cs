@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace TabbedNotepad
@@ -11,12 +13,19 @@ namespace TabbedNotepad
         public string Id;
         public string Title;
         public string Text;
+        public Color? Color;
+
+        /// <summary>For a text file opened from elsewhere: its full path. Null for tabs kept in the notes folder.</summary>
+        public string ExternalPath;
+        public Encoding FileEncoding;
+        public DateTime FileTimestampUtc;
     }
 
     /// <summary>
     /// Saves notes in a folder (Documents\TabbedNotepad by default). Every tab is a plain
     /// .txt file named after the tab, so the notes stay readable with any editor, and
-    /// "tabs.ini" keeps the tab order, tab names and window settings.
+    /// "tabs.ini" keeps the tab order, tab names, tab colors and window settings.
+    /// Text files opened from elsewhere stay where they are; tabs.ini only remembers their path.
     /// </summary>
     internal sealed class NoteStore
     {
@@ -25,6 +34,9 @@ namespace TabbedNotepad
 
         public string Folder { get; }
         public Dictionary<string, string> Settings { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Files opened from elsewhere that could not be found by the last <see cref="Load"/>.</summary>
+        public List<string> MissingFiles { get; } = new List<string>();
 
         public NoteStore(string folder)
         {
@@ -39,6 +51,10 @@ namespace TabbedNotepad
         public bool HasIndex => File.Exists(Path.Combine(Folder, IndexFileName));
 
         public bool NoteFileExists(string id) => File.Exists(NotePath(id));
+
+        public string NotePath(string id) => Path.Combine(Folder, id + ".txt");
+
+        public static string NewExternalId() => "file-" + Guid.NewGuid().ToString("N").Substring(0, 12);
 
         /// <summary>
         /// Picks the file name (without .txt) for a tab: the tab name made safe for Windows,
@@ -86,7 +102,10 @@ namespace TabbedNotepad
         public List<NoteData> Load()
         {
             var notes = new List<NoteData>();
-            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var byId = new Dictionary<string, NoteData>(StringComparer.OrdinalIgnoreCase);
+            var externalPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var colors = new Dictionary<string, Color>(StringComparer.OrdinalIgnoreCase);
+            MissingFiles.Clear();
             string indexPath = Path.Combine(Folder, IndexFileName);
 
             if (File.Exists(indexPath))
@@ -106,49 +125,101 @@ namespace TabbedNotepad
                     string key = line.Substring(0, eq).Trim();
                     string value = line.Substring(eq + 1).Trim();
 
-                    if (section == "settings")
+                    switch (section)
                     {
-                        Settings[key] = value;
-                    }
-                    else if (section == "tabs" && IsSafeId(key) && known.Add(key))
-                    {
-                        notes.Add(new NoteData { Id = key, Title = value, Text = ReadNote(key) });
+                        case "settings":
+                            Settings[key] = value;
+                            break;
+                        case "tabs":
+                            if (IsSafeId(key) && !byId.ContainsKey(key))
+                            {
+                                var note = new NoteData { Id = key, Title = value };
+                                byId[key] = note;
+                                notes.Add(note);
+                            }
+                            break;
+                        case "files":
+                            externalPaths[key] = value;
+                            break;
+                        case "colors":
+                            if (TryParseColor(value, out Color color)) colors[key] = color;
+                            break;
                     }
                 }
-            }
 
-            if (File.Exists(indexPath))
+                foreach (var note in notes.ToList())
+                {
+                    if (colors.TryGetValue(note.Id, out Color color)) note.Color = color;
+                    if (externalPaths.TryGetValue(note.Id, out string path))
+                    {
+                        note.ExternalPath = path;
+                        if (!File.Exists(path))
+                        {
+                            MissingFiles.Add(path);
+                            notes.Remove(note);
+                            continue;
+                        }
+                        try
+                        {
+                            note.Text = ReadTextFile(path, out note.FileEncoding);
+                            note.FileTimestampUtc = File.GetLastWriteTimeUtc(path);
+                        }
+                        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                        {
+                            // Not one of our notes: skip it rather than fail to open everything.
+                            MissingFiles.Add(path + " (" + ex.Message + ")");
+                            notes.Remove(note);
+                        }
+                    }
+                    else
+                    {
+                        string notePath = NotePath(note.Id);
+                        note.Text = File.Exists(notePath) ? ReadTextFile(notePath, out _) : "";
+                    }
+                }
                 return notes;
+            }
 
             foreach (string file in Directory.GetFiles(Folder, "*.txt"))
             {
                 if (!string.Equals(Path.GetExtension(file), ".txt", StringComparison.OrdinalIgnoreCase)) continue;
                 string id = Path.GetFileNameWithoutExtension(file);
-                if (!IsSafeId(id) || !known.Add(id)) continue;
-                notes.Add(new NoteData { Id = id, Title = id, Text = ReadNote(id) });
+                if (!IsSafeId(id) || byId.ContainsKey(id)) continue;
+                var note = new NoteData { Id = id, Title = id, Text = ReadTextFile(file, out _) };
+                byId[id] = note;
+                notes.Add(note);
             }
-
             return notes;
         }
 
         public void SaveNote(NoteData note)
         {
-            WriteAtomic(NotePath(note.Id), note.Text ?? "");
+            WriteAtomic(NotePath(note.Id), ToWindowsNewlines(note.Text), Utf8);
         }
 
         public void SaveIndex(IEnumerable<NoteData> notes)
         {
+            var list = notes.ToList();
             var sb = new StringBuilder();
-            sb.AppendLine("; Tabbed Notepad - tab order, tab names and settings.");
-            sb.AppendLine("; Each tab's text is stored in <id>.txt in this folder.");
+            sb.AppendLine("; Tabbed Notepad - tab order, tab names, tab colors and settings.");
+            sb.AppendLine("; Each tab's text is stored in <name>.txt in this folder, except tabs listed under [files],");
+            sb.AppendLine("; which are text files opened from elsewhere and saved where they are.");
             sb.AppendLine("[settings]");
             foreach (var pair in Settings)
                 sb.Append(pair.Key).Append('=').AppendLine(CleanValue(pair.Value));
             sb.AppendLine();
             sb.AppendLine("[tabs]");
-            foreach (var note in notes)
+            foreach (var note in list)
                 sb.Append(note.Id).Append('=').AppendLine(CleanValue(note.Title));
-            WriteAtomic(Path.Combine(Folder, IndexFileName), sb.ToString());
+            sb.AppendLine();
+            sb.AppendLine("[files]");
+            foreach (var note in list.Where(n => n.ExternalPath != null))
+                sb.Append(note.Id).Append('=').AppendLine(CleanValue(note.ExternalPath));
+            sb.AppendLine();
+            sb.AppendLine("[colors]");
+            foreach (var note in list.Where(n => n.Color.HasValue))
+                sb.Append(note.Id).Append('=').AppendLine(ColorToText(note.Color.Value));
+            WriteAtomic(Path.Combine(Folder, IndexFileName), sb.ToString(), Utf8);
         }
 
         /// <summary>Keeps a closed tab's text in the "Closed tabs" subfolder instead of deleting it.</summary>
@@ -161,7 +232,7 @@ namespace TabbedNotepad
                 string name = MakeFileNameSafe(note.Title);
                 if (name.Length == 0) name = "Untitled";
                 string target = Path.Combine(archive, name + " (closed " + DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss") + ").txt");
-                File.WriteAllText(target, note.Text, Utf8);
+                File.WriteAllText(target, ToWindowsNewlines(note.Text), Utf8);
             }
 
             string path = NotePath(note.Id);
@@ -178,32 +249,88 @@ namespace TabbedNotepad
             return sb.ToString().Trim().TrimEnd('.');
         }
 
-        private string NotePath(string id) => Path.Combine(Folder, id + ".txt");
+        // ---------------------------------------------------------------- text files
 
-        private string ReadNote(string id)
+        /// <summary>
+        /// Reads a text file, detecting its encoding: a byte order mark (UTF-8/UTF-16), else UTF-8,
+        /// else the Windows ANSI code page (older Notepad files). Reading those as UTF-8 would
+        /// garble accented letters.
+        /// </summary>
+        public static string ReadTextFile(string path, out Encoding encoding)
         {
-            string path = NotePath(id);
-            if (!File.Exists(path)) return "";
             byte[] bytes = File.ReadAllBytes(path);
 
-            // Files with a byte order mark (UTF-8/UTF-16) are read as marked.
-            if (bytes.Length >= 2 && ((bytes[0] == 0xFF && bytes[1] == 0xFE) || (bytes[0] == 0xFE && bytes[1] == 0xFF) ||
-                                      (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)))
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+                encoding = new UTF8Encoding(true);
+            else if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+                encoding = Encoding.Unicode;
+            else if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+                encoding = Encoding.BigEndianUnicode;
+            else
             {
-                using (var reader = new StreamReader(new MemoryStream(bytes), Utf8, detectEncodingFromByteOrderMarks: true))
-                    return reader.ReadToEnd();
+                try
+                {
+                    string text = new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
+                    encoding = Utf8;
+                    return text;
+                }
+                catch (DecoderFallbackException)
+                {
+                    encoding = Encoding.Default;
+                    return Encoding.Default.GetString(bytes);
+                }
             }
 
-            // Otherwise UTF-8, unless the file isn't valid UTF-8: then it's an older Windows (ANSI)
-            // text file, e.g. made with old Notepad. Reading it as UTF-8 would garble accented letters.
+            using (var reader = new StreamReader(new MemoryStream(bytes), encoding, detectEncodingFromByteOrderMarks: true))
+                return reader.ReadToEnd();
+        }
+
+        /// <summary>
+        /// Saves a text file opened from elsewhere in the encoding it had. If the text now holds
+        /// characters that encoding can't store (e.g. emoji in an ANSI file), saves as UTF-8 instead.
+        /// Returns the encoding used.
+        /// </summary>
+        public static Encoding WriteTextFile(string path, string text, Encoding encoding)
+        {
+            text = ToWindowsNewlines(text);
+            encoding = encoding ?? Utf8;
+            if (!CanEncode(encoding, text))
+                encoding = new UTF8Encoding(true);
+            WriteAtomic(path, text, encoding);
+            return encoding;
+        }
+
+        private static bool CanEncode(Encoding encoding, string text)
+        {
+            if (encoding is UTF8Encoding || encoding is UnicodeEncoding) return true;
             try
             {
-                return new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes);
+                var strict = Encoding.GetEncoding(encoding.CodePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+                strict.GetBytes(text);
+                return true;
             }
-            catch (DecoderFallbackException)
+            catch (EncoderFallbackException)
             {
-                return Encoding.Default.GetString(bytes);
+                return false;
             }
+        }
+
+        /// <summary>Notepad-style line breaks (\r\n), whatever the editor produced.</summary>
+        public static string ToWindowsNewlines(string text) =>
+            (text ?? "").Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n");
+
+        // ---------------------------------------------------------------- helpers
+
+        public static string ColorToText(Color c) => "#" + c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2");
+
+        public static bool TryParseColor(string text, out Color color)
+        {
+            color = Color.Empty;
+            text = (text ?? "").Trim().TrimStart('#');
+            if (text.Length != 6) return false;
+            if (!int.TryParse(text, System.Globalization.NumberStyles.HexNumber, null, out int rgb)) return false;
+            color = Color.FromArgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            return true;
         }
 
         private static bool IsReservedName(string name)
@@ -222,11 +349,11 @@ namespace TabbedNotepad
         private static string CleanValue(string value) =>
             (value ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
 
-        /// <summary>Writes to a temporary file first so a crash or power loss never leaves a half-written note.</summary>
-        private static void WriteAtomic(string path, string content)
+        /// <summary>Writes to a temporary file first so a crash or power loss never leaves a half-written file.</summary>
+        private static void WriteAtomic(string path, string content, Encoding encoding)
         {
             string tmp = path + ".tmp";
-            File.WriteAllText(tmp, content, Utf8);
+            File.WriteAllText(tmp, content, encoding);
             if (File.Exists(path))
                 File.Replace(tmp, path, null);
             else
@@ -235,7 +362,7 @@ namespace TabbedNotepad
     }
 
     /// <summary>
-    /// Remembers which folder holds the notes (after "Save All Tabs As" or "Open"), in
+    /// Remembers which folder holds the notes (after "Save All Tabs As" or "Open Folder"), in
     /// %AppData%\TabbedNotepad\notes-folder.txt.
     /// </summary>
     internal static class AppConfig

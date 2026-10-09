@@ -56,22 +56,29 @@ namespace TabbedNotepad
         }
     }
 
-    /// <summary>Modeless Find dialog, like Notepad's, with an option to search every tab.</summary>
+    /// <summary>
+    /// Modeless Find dialog, like Notepad's, with an option to search every tab and a
+    /// "Select All" button that highlights every match and shows how many there are.
+    /// </summary>
     internal sealed class FindDialog : Form
     {
         private readonly TextBox _search;
         private readonly CheckBox _matchCase;
         private readonly CheckBox _allTabs;
+        private readonly Label _result;
         private readonly Func<string, bool, bool, bool> _findNext;
+        private readonly Func<string, bool, bool, string> _selectAll;
 
         public string SearchText { get => _search.Text; set => _search.Text = value; }
         public bool MatchCase => _matchCase.Checked;
         public bool AllTabs => _allTabs.Checked;
 
         /// <param name="findNext">Called with (text, matchCase, allTabs); returns whether a match was found.</param>
-        public FindDialog(Func<string, bool, bool, bool> findNext)
+        /// <param name="selectAll">Called with (text, matchCase, allTabs); highlights all matches and returns a summary like "12 matches in 3 tabs".</param>
+        public FindDialog(Func<string, bool, bool, bool> findNext, Func<string, bool, bool, string> selectAll)
         {
             _findNext = findNext;
+            _selectAll = selectAll;
 
             Text = "Find";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -93,6 +100,8 @@ namespace TabbedNotepad
             _matchCase = new CheckBox { Text = "Match case", AutoSize = true };
             _allTabs = new CheckBox { Text = "Search all tabs", AutoSize = true, Checked = true };
             var findButton = new Button { Text = "Find Next", AutoSize = true, Dock = DockStyle.Fill };
+            var selectAllButton = new Button { Text = "Select All", AutoSize = true, Dock = DockStyle.Fill };
+            _result = new Label { AutoSize = true, Margin = new Padding(3, 8, 3, 0), Font = new Font(Font, FontStyle.Bold) };
             var closeButton = new Button { Text = "Close", AutoSize = true, Dock = DockStyle.Fill, DialogResult = DialogResult.Cancel };
 
             var left = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Dock = DockStyle.Fill };
@@ -101,11 +110,13 @@ namespace TabbedNotepad
             var options = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = new Padding(0, 8, 0, 0) };
             options.Controls.Add(_matchCase);
             options.Controls.Add(_allTabs);
+            options.Controls.Add(_result);
             left.Controls.Add(options, 0, 1);
             left.SetColumnSpan(options, 2);
 
             var right = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = new Padding(10, 0, 0, 0) };
             right.Controls.Add(findButton);
+            right.Controls.Add(selectAllButton);
             right.Controls.Add(closeButton);
 
             layout.Controls.Add(left, 0, 0);
@@ -116,9 +127,20 @@ namespace TabbedNotepad
             CancelButton = closeButton;
 
             findButton.Click += (s, e) => FindNext();
+            selectAllButton.Click += (s, e) =>
+            {
+                if (_search.Text.Length > 0)
+                    _result.Text = _selectAll(_search.Text, MatchCase, AllTabs);
+            };
             closeButton.Click += (s, e) => Hide();
-            _search.TextChanged += (s, e) => findButton.Enabled = _search.Text.Length > 0;
-            findButton.Enabled = false;
+            _search.TextChanged += (s, e) =>
+            {
+                findButton.Enabled = selectAllButton.Enabled = _search.Text.Length > 0;
+                _result.Text = "";
+            };
+            _matchCase.CheckedChanged += (s, e) => _result.Text = "";
+            _allTabs.CheckedChanged += (s, e) => _result.Text = "";
+            findButton.Enabled = selectAllButton.Enabled = false;
 
             // Keep the dialog around so it remembers the search text; just hide it.
             FormClosing += (s, e) =>
