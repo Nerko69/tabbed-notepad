@@ -26,9 +26,15 @@ namespace TabbedNotepad.Screenshots
         {
             _outDir = Path.GetFullPath(args.Length > 0 ? args[0] : "screenshots");
             Directory.CreateDirectory(_outDir);
-            string root = Path.Combine(Path.GetTempPath(), "TabbedNotepadDemo-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            // On the (throw-away) CI machine use the normal Documents\TabbedNotepad, so the screenshots
+            // show the usual path; anywhere else use a temporary folder, never someone's real notes.
+            string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            bool ci = Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true";
+            string root = ci && !Directory.Exists(Path.Combine(documents, "TabbedNotepad"))
+                ? documents
+                : Path.Combine(Path.GetTempPath(), "TabbedNotepadDemo-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             string notes = Path.Combine(root, "TabbedNotepad");
-            string elsewhere = Path.Combine(root, "Documents");
+            string elsewhere = Path.Combine(root, "Shopping");
             CreateDemoNotes(notes, elsewhere);
 
             Application.EnableVisualStyles();

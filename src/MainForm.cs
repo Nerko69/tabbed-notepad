@@ -104,27 +104,28 @@ namespace TabbedNotepad
             file.DropDownOpening += (s, e) => _saveCopyToNotesItem.Enabled = CurrentTab?.IsExternal == true;
 
             var edit = new ToolStripMenuItem("&Edit");
-            var undo = Item("&Undo", Keys.Control | Keys.Z, (s, e) => CurrentEditor?.Undo());
-            var redo = Item("&Redo", Keys.Control | Keys.Y, (s, e) => CurrentEditor?.Redo());
+            // Edit commands act on the search box while you type in it, otherwise on the current tab.
+            var undo = Item("&Undo", Keys.Control | Keys.Z, (s, e) => EditCommand(ed => ed.Undo(), box => box.Undo()));
+            var redo = Item("&Redo", Keys.Control | Keys.Y, (s, e) => EditCommand(ed => ed.Redo(), box => { }));
             edit.DropDownItems.Add(undo);
             edit.DropDownItems.Add(redo);
             edit.DropDownItems.Add(new ToolStripSeparator());
-            edit.DropDownItems.Add(Item("Cu&t", Keys.Control | Keys.X, (s, e) => CurrentEditor?.Cut()));
-            edit.DropDownItems.Add(Item("&Copy", Keys.Control | Keys.C, (s, e) => CurrentEditor?.Copy()));
-            edit.DropDownItems.Add(Item("&Paste", Keys.Control | Keys.V, (s, e) => CurrentEditor?.PastePlainText()));
-            edit.DropDownItems.Add(Item("De&lete", Keys.None, (s, e) => CurrentEditor?.ReplaceSelection("")));
+            edit.DropDownItems.Add(Item("Cu&t", Keys.Control | Keys.X, (s, e) => EditCommand(ed => ed.Cut(), box => box.Cut())));
+            edit.DropDownItems.Add(Item("&Copy", Keys.Control | Keys.C, (s, e) => EditCommand(ed => ed.Copy(), box => box.Copy())));
+            edit.DropDownItems.Add(Item("&Paste", Keys.Control | Keys.V, (s, e) => EditCommand(ed => ed.PastePlainText(), box => box.Paste())));
+            edit.DropDownItems.Add(Item("De&lete", Keys.None, (s, e) => EditCommand(ed => ed.ReplaceSelection(""), box => box.SelectedText = "")));
             edit.DropDownItems.Add(new ToolStripSeparator());
             edit.DropDownItems.Add(Item("&Search Tabs", Keys.Control | Keys.F, (s, e) => FocusSearchBox()));
             edit.DropDownItems.Add(Item("&Find...", Keys.Control | Keys.Shift | Keys.F, (s, e) => ShowFind()));
             edit.DropDownItems.Add(Item("Find &Next", Keys.F3, (s, e) => FindAgain(forward: true)));
             edit.DropDownItems.Add(Item("Find Pre&vious", Keys.Shift | Keys.F3, (s, e) => FindAgain(forward: false)));
             edit.DropDownItems.Add(new ToolStripSeparator());
-            edit.DropDownItems.Add(Item("Select &All", Keys.Control | Keys.A, (s, e) => CurrentEditor?.SelectAll()));
+            edit.DropDownItems.Add(Item("Select &All", Keys.Control | Keys.A, (s, e) => EditCommand(ed => ed.SelectAll(), box => box.SelectAll())));
             edit.DropDownItems.Add(Item("Time/&Date", Keys.F5, (s, e) => InsertTimeDate()));
             edit.DropDownOpening += (s, e) =>
             {
-                undo.Enabled = CurrentEditor?.CanUndo == true;
-                redo.Enabled = CurrentEditor?.CanRedo == true;
+                undo.Enabled = SearchBoxFocused || CurrentEditor?.CanUndo == true;
+                redo.Enabled = !SearchBoxFocused && CurrentEditor?.CanRedo == true;
             };
 
             var format = new ToolStripMenuItem("F&ormat");
@@ -187,6 +188,14 @@ namespace TabbedNotepad
             var item = new ToolStripMenuItem(text, null, onClick);
             if (keys != Keys.None) item.ShortcutKeys = keys;
             return item;
+        }
+
+        private void EditCommand(Action<NoteEditor> onEditor, Action<TextBox> onSearchBox)
+        {
+            if (SearchBoxFocused)
+                onSearchBox(_searchBox.TextBox);
+            else if (CurrentEditor != null)
+                onEditor(CurrentEditor);
         }
 
         private NoteTab CurrentTab => _tabs.SelectedTab as NoteTab;
@@ -626,6 +635,7 @@ namespace TabbedNotepad
         private void OnSelectedTabChanged()
         {
             if (_loading) return;
+            foreach (var tab in AllTabs) tab.HideCopyButton();
             UpdateTitle();
             UpdatePosition();
             UpdateFolderLabel();

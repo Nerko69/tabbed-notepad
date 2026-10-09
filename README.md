@@ -1,10 +1,14 @@
 # Tabbed Notepad
 
-A simple Windows notepad with **named tabs** — one tab per project, so you never have to
+A simple Windows notepad with **named, colored tabs**: one tab per project, so you never have to
 scroll through one long file to find the right place to write.
 
 Everything is **saved automatically** as you type. There is no "Save" prompt, and your tabs,
-their names and their text are all back when you open the app again.
+their names, colors and text are all back when you open the app again.
+
+![Tabbed Notepad](docs/images/01-main.png)
+
+**→ [User guide with screenshots](docs/user-guide.md)**
 
 ## Download and run
 
@@ -18,22 +22,17 @@ No installation needed. It runs on Windows 10 and 11, which already include .NET
 > .exe is not code-signed. Click **More info → Run anyway**.
 > Tip: right-click the .exe → **Pin to taskbar** or **Pin to Start**.
 
-## How to use it
+## Features
 
-| What | How |
-|---|---|
-| New tab | **Ctrl+T**, or click **+ New Tab** (top right) — you'll be asked for a name |
-| Rename a tab | Double-click the tab, or **F2** |
-| Close a tab | **Ctrl+W**, middle-click the tab, or right-click → Close Tab |
-| Switch tabs | Click, **Ctrl+Tab** / **Ctrl+Shift+Tab**, or **Ctrl+1 … Ctrl+9** |
-| Reorder tabs | Drag a tab left or right, or right-click → Move Left / Move Right |
-| Insert time and date | **F5** (like Notepad) — handy for a daily log |
-| Find | **Ctrl+F**, then **F3** for the next match. "Search all tabs" looks through every tab |
-| Word wrap / font | **Format** menu |
-| Save | Automatic as you type. **Ctrl+S** saves immediately if you want peace of mind |
-| Save all tabs somewhere else | **File → Save All Tabs As…** (**Ctrl+Shift+S**) — see below |
-| Open notes from another folder | **File → Open…** (**Ctrl+O**) |
-| Save one tab as a separate .txt file | **File → Save This Tab As Text File…** |
+- **Tabs:** name, color, drag or ◄ ► to reorder. Tabs wrap onto more rows when there are many.
+- **Search box:** search this tab or all tabs, with every match highlighted and counted. The
+  **Find** dialog adds *Match case* and *Select All*.
+- **Links:** click to open in your browser. Hover for a copy icon.
+- **Undo / Redo** (Ctrl+Z / Ctrl+Y), **F5** for time and date, plain-text paste.
+- **Open Text File:** open `.txt` files from anywhere in tabs. They're saved back into their own file.
+- **Save All Tabs As / Open Folder:** choose where your notes live.
+
+See the **[user guide](docs/user-guide.md)** for details and all keyboard shortcuts.
 
 ## Where are my notes?
 
@@ -42,22 +41,11 @@ Explorer. By default it is `Documents\TabbedNotepad`.
 
 - Each tab is a plain `.txt` file named after the tab (`Project A.txt`, `Client B.txt`, …), so
   your notes are readable with any editor even without this app. Renaming a tab renames its file.
-- `tabs.ini` remembers the tab order, the window position and the font.
+- `tabs.ini` remembers the tab order, tab colors, files opened from elsewhere, the window position
+  and the font.
 - Closing a tab never deletes its text: it is moved to the `Closed tabs` subfolder.
-
-### Saving to a different place: Save All Tabs As
-
-**File → Save All Tabs As…** works like *Save As* in Notepad, but for all tabs at once:
-
-1. Pick a folder, for example a new folder on your Desktop, in OneDrive, or on a USB stick.
-2. All tabs are saved there, one `.txt` file per tab.
-3. From then on the app keeps saving to that folder, and it opens that folder the next time you start it.
-
-The previous folder is left as it was, so it stays behind as a backup copy. If the folder you pick
-already contains files with the same names, the app asks before replacing anything.
-
-**File → Open…** switches to the notes in another folder. You can also open any folder of
-ordinary `.txt` files, and each file becomes a tab.
+- **File → Save All Tabs As…** saves every tab into a folder you pick and keeps saving there. The
+  old folder stays as a backup. **File → Open Folder…** switches to another notes folder.
 
 To back up your notes, copy the notes folder. Only one copy of the app runs at a time;
 starting it again brings the open window to the front.
@@ -71,5 +59,7 @@ dotnet build src/TabbedNotepad.csproj -c Release
 ```
 
 The .exe ends up in `src/bin/Release/net48/`. The GitHub Actions workflow in
-`.github/workflows/build.yml` builds it on Windows for every push and attaches it to the run
-as a downloadable artifact.
+`.github/workflows/build.yml` builds it on Windows for every push. It then runs
+[`tools/Screenshots`](tools/Screenshots), which opens the app with demo notes, checks the main
+features and takes the screenshots in `docs/images/`. The .exe and the screenshots are attached to
+each run as downloadable artifacts.
