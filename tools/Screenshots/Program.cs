@@ -74,6 +74,7 @@ namespace TabbedNotepad.Screenshots
             // 1. Colored tabs in several rows.
             Check(tabs.TabCount >= 12, "demo tabs loaded (" + tabs.TabCount + ")");
             Check(tabs.Multiline, "tabs in multiple rows by default");
+            Check(form.Text.StartsWith("Project Alpha"), "title bar shows the tab name: " + form.Text);
             Check(tabs.TabPages.Cast<NoteTab>().All(t => !t.TabColor.IsEmpty && t.TabColor != SystemColors.Control), "every tab has a color");
             Shot(form, "01-main.png");
 

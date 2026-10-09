@@ -159,8 +159,17 @@ namespace TabbedNotepad
                             notes.Remove(note);
                             continue;
                         }
-                        note.Text = ReadTextFile(path, out note.FileEncoding);
-                        note.FileTimestampUtc = File.GetLastWriteTimeUtc(path);
+                        try
+                        {
+                            note.Text = ReadTextFile(path, out note.FileEncoding);
+                            note.FileTimestampUtc = File.GetLastWriteTimeUtc(path);
+                        }
+                        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                        {
+                            // Not one of our notes: skip it rather than fail to open everything.
+                            MissingFiles.Add(path + " (" + ex.Message + ")");
+                            notes.Remove(note);
+                        }
                     }
                     else
                     {

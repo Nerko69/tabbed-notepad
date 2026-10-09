@@ -31,6 +31,7 @@ namespace TabbedNotepad
         private bool _indexDirty;
         private bool _loading;
         private bool _resolvingConflict;
+        private bool _readOnlyAfterLoadError;   // notes couldn't be read: never save over them
         private string _lastSaveError;
 
         // Tab drag-to-reorder state.
@@ -146,9 +147,21 @@ namespace TabbedNotepad
             // Right-aligned items are placed from the right edge inwards, so they're added in reverse.
             var plus = new ToolStripMenuItem("+ New Tab") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "New tab (Ctrl+T)" };
             plus.Click += (s, e) => NewTab();
-            var moveRight = new ToolStripMenuItem("►") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "Move tab right (Ctrl+Shift+Page Down)" };
+            var moveRight = new ToolStripMenuItem("Move tab right", ArrowImage(left: false))
+            {
+                Alignment = ToolStripItemAlignment.Right,
+                DisplayStyle = ToolStripItemDisplayStyle.Image,
+                ImageScaling = ToolStripItemImageScaling.None,
+                ToolTipText = "Move tab right (Ctrl+Shift+Page Down)",
+            };
             moveRight.Click += (s, e) => MoveCurrentTab(+1);
-            var moveLeft = new ToolStripMenuItem("◄") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "Move tab left (Ctrl+Shift+Page Up)" };
+            var moveLeft = new ToolStripMenuItem("Move tab left", ArrowImage(left: true))
+            {
+                Alignment = ToolStripItemAlignment.Right,
+                DisplayStyle = ToolStripItemDisplayStyle.Image,
+                ImageScaling = ToolStripItemImageScaling.None,
+                ToolTipText = "Move tab left (Ctrl+Shift+Page Up)",
+            };
             moveLeft.Click += (s, e) => MoveCurrentTab(-1);
             menu.Items.Add(plus);
             menu.Items.Add(moveRight);
@@ -190,6 +203,25 @@ namespace TabbedNotepad
             return item;
         }
 
+        /// <summary>A solid triangle pointing left or right, for the move-tab buttons.</summary>
+        private static Bitmap ArrowImage(bool left)
+        {
+            int size = Dpi.Scale(16);
+            var bmp = new Bitmap(size, size);
+            using (var g = Graphics.FromImage(bmp))
+            using (var brush = new SolidBrush(Color.FromArgb(70, 70, 70)))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                float w = size * 0.45f, h = size * 0.62f;
+                float x0 = (size - w) / 2f, y0 = (size - h) / 2f;
+                var points = left
+                    ? new[] { new PointF(x0 + w, y0), new PointF(x0 + w, y0 + h), new PointF(x0, y0 + h / 2f) }
+                    : new[] { new PointF(x0, y0), new PointF(x0, y0 + h), new PointF(x0 + w, y0 + h / 2f) };
+                g.FillPolygon(brush, points);
+            }
+            return bmp;
+        }
+
         private void EditCommand(Action<NoteEditor> onEditor, Action<TextBox> onSearchBox)
         {
             if (SearchBoxFocused)
@@ -215,15 +247,30 @@ namespace TabbedNotepad
                 old.Dispose();
             }
 
-            List<NoteData> notes;
-            try
+            List<NoteData> notes = null;
+            while (notes == null)
             {
-                notes = _store.Load();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Could not read your notes from\n" + _store.Folder + "\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                notes = new List<NoteData>();
+                try
+                {
+                    notes = _store.Load();
+                }
+                catch (Exception ex)
+                {
+                    // Never carry on with an empty set of tabs here: saving it would replace the tab list.
+                    var answer = MessageBox.Show(this,
+                        "Could not read your notes from\n" + _store.Folder + "\n\n" + ex.Message +
+                        "\n\nIf a program such as OneDrive or a virus scanner is busy with the files, wait a moment and click Retry." +
+                        "\nCancel closes Tabbed Notepad without changing anything.",
+                        AppName, MessageBoxButtons.RetryCancel, MessageBoxIcon.Error);
+                    if (answer != DialogResult.Retry)
+                    {
+                        _readOnlyAfterLoadError = true;
+                        _tabs.ResumeLayout();
+                        _loading = false;
+                        BeginInvoke((Action)Close);
+                        return;
+                    }
+                }
             }
 
             var settings = _store.Settings;
@@ -267,8 +314,11 @@ namespace TabbedNotepad
                 _indexDirty = true;
             }
 
-            if (settings.TryGetValue("selected", out string sel) && int.TryParse(sel, out int index) && index >= 0 && index < _tabs.TabCount)
-                _tabs.SelectedIndex = index;
+            // Always select a tab explicitly: before the window exists the tab control reports
+            // "no tab selected", which left the title bar without the tab name.
+            _tabs.SelectedIndex = settings.TryGetValue("selected", out string sel) && int.TryParse(sel, out int index) && index >= 0 && index < _tabs.TabCount
+                ? index
+                : 0;
 
             _tabs.ResumeLayout();
             _loading = false;
@@ -388,6 +438,7 @@ namespace TabbedNotepad
         private bool SaveAll(bool showStatus, bool quiet = false)
         {
             _saveTimer.Stop();
+            if (_readOnlyAfterLoadError) return true;
             try
             {
                 foreach (var tab in AllTabs.Where(t => t.Dirty).ToList())
@@ -882,7 +933,7 @@ namespace TabbedNotepad
                 "  Ctrl+W\tClose tab (or middle-click the tab)\n" +
                 "  Ctrl+Tab\tNext tab  (Ctrl+Shift+Tab: previous)\n" +
                 "  Ctrl+1..9\tJump to tab 1..9\n" +
-                "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the ◄ ► buttons)\n" +
+                "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the arrow buttons)\n" +
                 "  Right-click a tab for its color and more\n\n" +
                 "Editing\n" +
                 "  Ctrl+Z / Ctrl+Y\tUndo / Redo\n" +
