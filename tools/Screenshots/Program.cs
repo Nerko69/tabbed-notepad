@@ -46,25 +46,23 @@ namespace TabbedNotepad.Screenshots
             // Keep the mouse pointer away from the window so it doesn't hover over anything.
             Cursor.Position = new Point(SystemInformation.VirtualScreen.Right - 5, SystemInformation.VirtualScreen.Bottom - 5);
             var form = new MainForm(new NoteStore(notes));
-            form.Show();
-            Pump(1500);
-
-            try
+            // Run the checks inside Application.Run, so the app starts and exits exactly as it does for
+            // a user: a crash while shutting down then fails this program too.
+            form.Shown += (s, e) => form.BeginInvoke((Action)(() =>
             {
-                RunScenes(form, notes, elsewhere);
-            }
-            catch (Exception ex)
-            {
-                Fail("Scene crashed: " + ex);
-                Shot(form, "zz-crash.png");
-            }
-
-            form.Close();
-            Pump(300);
-            // The checks pump messages by hand instead of Application.Run, so end the UI thread the way
-            // Application.Run does when the app closes. Without this, OLE (used by the clipboard) is never
-            // shut down and Windows ends the process with 0xC000041D.
-            Application.ExitThread();
+                Pump(1500);
+                try
+                {
+                    RunScenes(form, notes, elsewhere);
+                }
+                catch (Exception ex)
+                {
+                    Fail("Scene crashed: " + ex);
+                    Shot(form, "zz-crash.png");
+                }
+                form.Close();
+            }));
+            Application.Run(form);
             Console.WriteLine(_failures == 0 ? "All checks passed." : _failures + " check(s) failed.");
             Console.WriteLine("Exit code: " + _failures);
             return _failures;
