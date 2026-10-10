@@ -13,6 +13,7 @@ namespace TabbedNotepad
         private readonly TextBox _text;
         private readonly Label _count;
         private readonly ComboBox _scope;
+        private readonly ToolTip _tips = new ToolTip();
         private bool _setting;
         private bool _noMatches;
 
@@ -66,7 +67,7 @@ namespace TabbedNotepad
             _scope.SelectedIndexChanged += (s, e) => { if (!_setting) ScopeChanged?.Invoke(this, _scope.SelectedIndex); _text.Focus(); };
         }
 
-        private static Button SmallButton(string text, string tip)
+        private Button SmallButton(string text, string tip)
         {
             var b = new Button
             {
@@ -78,7 +79,7 @@ namespace TabbedNotepad
                 Font = new Font("Segoe UI Symbol", 8f),
             };
             b.FlatAppearance.BorderSize = 0;
-            new ToolTip().SetToolTip(b, tip);
+            _tips.SetToolTip(b, tip);
             return b;
         }
 
@@ -124,6 +125,14 @@ namespace TabbedNotepad
         {
             _text.Focus();
             _text.SelectAll();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            // A ToolTip left for the garbage collector destroys its window from the finalizer thread,
+            // which can crash the app as it exits.
+            if (disposing) _tips.Dispose();
+            base.Dispose(disposing);
         }
 
         protected override void OnPaint(PaintEventArgs e)

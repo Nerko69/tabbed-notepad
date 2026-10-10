@@ -61,11 +61,8 @@ namespace TabbedNotepad.Screenshots
 
             form.Close();
             Pump(300);
+            // Exit the way the app does (no forced clean-up), so a crash on exit fails this check.
             Console.WriteLine("Shutdown: form closed, disposed=" + form.IsDisposed + ", open forms=" + Application.OpenForms.Count);
-            form.Dispose();
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            Console.WriteLine("Shutdown: finalizers done");
             Console.WriteLine(_failures == 0 ? "All checks passed." : _failures + " check(s) failed.");
             Console.WriteLine("Exit code: " + _failures);
             return _failures;
