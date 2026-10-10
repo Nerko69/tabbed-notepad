@@ -41,16 +41,6 @@ jobs:
           Write-Host "Screenshots.exe exit code: $code"
           exit $code
 
-      - name: Exit crash bisect (temporary)
-        if: always()
-        run: |
-          foreach ($stop in @("11", "11a", "11b", "11c", "11d", "11e", "11f", "12", "11", "11b", "11c", "11d")) {
-            $env:TN_STOP = $stop
-            tools/Screenshots/bin/Release/net48/Screenshots.exe bisect | Select-String "Exit code|UNHANDLED|UNOBSERVED|failed"
-            Write-Host "TN_STOP=$stop -> exit code $LASTEXITCODE"
-          }
-          exit 0
-
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
