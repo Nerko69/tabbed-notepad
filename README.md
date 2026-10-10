@@ -25,8 +25,13 @@ No installation needed. It runs on Windows 10 and 11, which already include .NET
 ## Features
 
 - **Tabs:** name, color, drag or ◄ ► to reorder. Tabs wrap onto more rows when there are many.
-- **Search box:** search this tab or all tabs, with every match highlighted and counted. The
+- **Search** (Ctrl+F pops up a search box): every match is highlighted, and each tab shows how
+  many matches it has in a small circle. Marks beside the scroll bar show where they are. The
   **Find** dialog adds *Match case* and *Select All*.
+- **Organize:** line numbers (click one to bookmark the line), date lines (Ctrl+D), colored
+  labels like `AVADOMS`, and a **Navigator** panel (F9) to jump between them.
+- **Word and character counter** for each tab.
+- **All Links** (Ctrl+L): every link you ever wrote, with dates, plus a generated web page.
 - **Links:** click to open in your browser. Hover for a copy icon.
 - **Undo / Redo** (Ctrl+Z / Ctrl+Y), **F5** for time and date, plain-text paste.
 - **Open Text File:** open `.txt` files from anywhere in tabs. They're saved back into their own file.
@@ -41,8 +46,9 @@ Explorer. By default it is `Documents\TabbedNotepad`.
 
 - Each tab is a plain `.txt` file named after the tab (`Project A.txt`, `Client B.txt`, …), so
   your notes are readable with any editor even without this app. Renaming a tab renames its file.
-- `tabs.ini` remembers the tab order, tab colors, files opened from elsewhere, the window position
-  and the font.
+- `tabs.ini` remembers the tab order, tab colors, bookmarks, labels, files opened from elsewhere,
+  the window position and the font.
+- `links.tsv` is the list of every link written in your notes (Tools → All Links).
 - Closing a tab never deletes its text: it is moved to the `Closed tabs` subfolder.
 - **File → Save All Tabs As…** saves every tab into a folder you pick and keeps saving there. The
   old folder stays as a backup. **File → Open Folder…** switches to another notes folder.

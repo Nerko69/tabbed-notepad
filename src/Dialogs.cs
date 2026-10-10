@@ -201,6 +201,7 @@ namespace TabbedNotepad
             };
 
             _swatches.ImageSize = new Size(Dpi.Scale(16), Dpi.Scale(16));
+            _swatches.ColorDepth = ColorDepth.Depth32Bit;   // the default 8-bit depth shows pale colors as black
             _list = new ListView
             {
                 Dock = DockStyle.Fill,
