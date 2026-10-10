@@ -1255,5 +1255,12 @@ namespace TabbedNotepad
             _saveTimer.Stop();
             base.OnFormClosing(e);
         }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            // A timer still running (e.g. the search a moment after typing) must not tick on a closed window.
+            foreach (var timer in new[] { _saveTimer, _infoTimer, _searchTimer }) timer?.Dispose();
+            base.OnFormClosed(e);
+        }
     }
 }
