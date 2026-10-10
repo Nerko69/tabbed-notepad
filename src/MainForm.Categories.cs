@@ -29,7 +29,10 @@ namespace TabbedNotepad
         private void UpdateCategoryMenuText()
         {
             _categoryMenu.Text = "Category: " + FilterName(_categoryFilter) + " ▾";
-            _categoryMenu.Font = new System.Drawing.Font(_categoryMenu.Font, _categoryFilter == null ? System.Drawing.FontStyle.Regular : System.Drawing.FontStyle.Bold);
+            // Bold title while a category is selected; the list itself stays in the normal font.
+            var regular = new System.Drawing.Font(_categoryMenu.Font, System.Drawing.FontStyle.Regular);
+            _categoryMenu.Font = _categoryFilter == null ? regular : new System.Drawing.Font(regular, System.Drawing.FontStyle.Bold);
+            _categoryMenu.DropDown.Font = regular;
         }
 
         /// <summary>
