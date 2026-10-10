@@ -209,6 +209,15 @@ namespace TabbedNotepad
             }
 
             RememberFolder(folder);
+            // The list of links goes along with the notes.
+            try
+            {
+                string oldLinks = Path.Combine(oldStore.Folder, LinkStore.FileName);
+                string newLinks = Path.Combine(folder, LinkStore.FileName);
+                if (File.Exists(oldLinks) && !File.Exists(newLinks)) File.Copy(oldLinks, newLinks);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+            OpenLinkStore();
             foreach (var tab in AllTabs) UpdateTabToolTip(tab);
             UpdateFolderLabel();
             MessageBox.Show(this,

@@ -9,7 +9,7 @@
     <RootNamespace>TabbedNotepad</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Product>Tabbed Notepad</Product>
     <Description>A simple notepad with named tabs that saves automatically.</Description>
     <Copyright>MIT License</Copyright>

@@ -7,7 +7,9 @@ is **saved automatically**.
 - [Getting started](#getting-started)
 - [Tabs](#tabs)
 - [Writing](#writing)
+- [Organizing your notes](#organizing-your-notes): line numbers, bookmarks, date lines, labels, navigator
 - [Searching](#searching)
+- [All links](#all-links)
 - [Files and folders](#files-and-folders)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 
@@ -28,8 +30,12 @@ Across the top, from left to right:
 - **◄ ►:** move the current tab left or right.
 - **+ New Tab:** add a tab.
 
-At the bottom, the **status bar** shows when your notes were last saved, **where they are saved**
-(click it to open that folder) and the cursor position.
+At the bottom, the **status bar** shows:
+
+- when your notes were last saved
+- **where they are saved** (click it to open that folder)
+- the **number of words and characters** in the tab (or in the selected text)
+- the line and column of the cursor
 
 ## Tabs
 
@@ -49,10 +55,10 @@ color you like. The same menu is under **Format → Tab Color**.
 ![Right-click a tab to rename it, change its color, move it or close it](images/05-tab-color.png)
 
 **Rows.** When there are more tabs than fit across the window, they wrap onto more rows, so every
-tab stays visible. If you prefer a single row, turn off **Format → Tabs in Multiple Rows**. The
+tab stays visible. If you prefer a single row, turn off **View → Tabs in Multiple Rows**. The
 row then scrolls with the small arrows at its right end.
 
-![Format → Tabs in Multiple Rows turned off: one row of tabs that scrolls](images/08-single-row.png)
+![View → Tabs in Multiple Rows turned off: one row of tabs that scrolls](images/08-single-row.png)
 
 **Closing a tab never deletes your text.** It is moved to the `Closed tabs` folder inside your
 notes folder, so you can get it back.
@@ -71,23 +77,91 @@ notes folder, so you can get it back.
 
 ![Hovering over a link shows the copy icon at its end](images/04-link-copy.png)
 
+## Organizing your notes
+
+These tools help you find your way around long notes, such as a daily log of domain research.
+
+![Line numbers with two bookmarked lines, shaded date lines, the labels AVADOMS and REGISTERED, and the Navigator](images/09-organize.png)
+
+**Line numbers and bookmarks.** Line numbers run down the left side (turn them off with **View →
+Line Numbers**).
+
+- **Click a line number** to bookmark that line. It gets a blue dot and a light-blue band, and it
+  stays bookmarked the next time you open the app. Click again to remove the bookmark.
+- **Ctrl+F2** bookmarks the line the cursor is on.
+- **F8** / **Shift+F8** jump to the next / previous bookmark.
+- Bookmarks stay on their line while you add or delete text above it.
+
+**Date lines.** A line with a run of at least five `-`, `=`, `_`, `*`, `~` or `#` characters,
+such as `-----------------2026-10-08`, is treated as a section divider. It is shaded gray and
+listed in the Navigator, so you can jump to any day. **Ctrl+D** inserts one with today's date:
+`------------------------------2026-10-10`.
+
+**Labels.** Labels are words you use to mark your notes, like `AVADOMS` (available domains) or
+`REGISTERED`.
+
+- Add them in **Tools → Labels…**, or select a word in a note and use **Tools → Make Selected
+  Word a Label**.
+- Each label has its own color and is highlighted wherever you type it. It matches whole words
+  with the exact capitalisation: `AVADOMS`, not `avadoms`.
+- In the Labels window, **Insert in Note** (or a double-click) types the label at the cursor.
+
+![Tools → Labels: your labels and their colors](images/10-labels.png)
+
+**Navigator (F9).** A side panel listing the current tab's **dates & sections**, **bookmarks**,
+**labels** (with where each one is used) and **links**. Click any entry to jump to it.
+Double-click a label to find it in **all** tabs: the tabs that contain it show a count.
+
+**Tip, a simple marking system:**
+
+- **A date line for each day** (Ctrl+D), so the Navigator becomes a list of days.
+- **A label for each kind of thing you track:** `AVADOMS` for domains you found, `REGISTERED`
+  once you buy one, `TODO`, `IDEA`, `CALL`.
+- **A bookmark** on anything you'll want to come back to soon.
+
 ## Searching
 
-**The search box** (top right, or **Ctrl+F**):
+**Ctrl+F** opens the **pop-up search box** at the top right of the note, like in a web browser.
+The same search is also always available in the box on the menu bar. If you prefer that box,
+turn off **View → Ctrl+F Opens Pop-up Search**.
 
-1. Choose **This tab** or **All tabs** in the box next to it.
-2. Type what you are looking for. Every match is highlighted in yellow, and the number of matches
-   is shown (e.g. *7 matches in 4 tabs*).
-3. Press **Enter** to jump to the next match (*2 of 7*), **Shift+Enter** for the previous one.
-   **Esc** clears the search.
+1. Type what you are looking for. Every match is highlighted in light yellow, so the text stays
+   readable.
+2. **Every tab that contains it shows the number of matches in an orange circle**, so you can see
+   at a glance which tabs mention it.
+3. Next to the scroll bar, **orange marks** show where the matches are in the whole note (blue dots
+   are bookmarks). Click a mark to jump there.
+4. **Enter** jumps to the next match (*2 of 7*), **Shift+Enter** to the previous one, or use **▲ ▼**.
+5. **This tab / All tabs** chooses whether Enter goes through the current tab only (the default) or
+   through every tab.
+6. **Esc** or **×** clears the search.
 
-![Searching all tabs for "client": every match is highlighted and the count shows "2 of 7"](images/02-search.png)
+![Pop-up search for "client": count circles on the tabs, highlighted matches and "2 of 2 here · in 5 tabs"](images/02-search.png)
 
 **The Find dialog** (**Edit → Find…** or **Ctrl+Shift+F**) adds **Match case**. It also has
 **Select All**, which highlights every match and shows how many there are, in this tab or in all
 tabs. **F3** / **Shift+F3** find the next / previous match.
 
 ![Find dialog: Select All highlights every match and shows the count](images/03-find-select-all.png)
+
+## All links
+
+Every web link you write in your notes is remembered, with the date it was first and last seen,
+the tab it is in and the line around it. It stays remembered even after you delete it from a note.
+
+**Tools → All Links…** (**Ctrl+L**) shows them all:
+
+- **Filter** to search the list.
+- Double-click a link (or **Open Link**) to open it.
+- **Copy Link** copies it.
+- **Show in Note** jumps to where it is written.
+- **Open as Web Page** creates `links.html` in your notes folder, with all links grouped by tab,
+  and opens it in your browser.
+
+Links that are no longer in any note are shown in grey. The list itself is kept in `links.tsv` in
+your notes folder (it opens in Excel too).
+
+![Tools → All Links: every link in your notes, with dates](images/11-links.png)
 
 ## Files and folders
 
@@ -126,7 +200,12 @@ version to keep.
 | Ctrl+Shift+Page Up / Page Down | Move tab left / right |
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
 | F5 | Insert time and date |
-| Ctrl+F | Search box |
+| Ctrl+D | Insert a date line (`-----…2026-10-10`) |
+| Click a line number / Ctrl+F2 | Bookmark a line |
+| F8 / Shift+F8 | Next / previous bookmark |
+| F9 | Navigator |
+| Ctrl+L | All links |
+| Ctrl+F | Search (pop-up box) |
 | Ctrl+Shift+F | Find dialog |
 | F3 / Shift+F3 | Next / previous match |
 | Ctrl+O | Open text file |
