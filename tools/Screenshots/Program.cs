@@ -40,6 +40,8 @@ namespace TabbedNotepad.Screenshots
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.ThreadException += (s, e) => Fail("Unhandled exception: " + e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => Console.WriteLine("UNHANDLED (background thread): " + e.ExceptionObject);
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) => Console.WriteLine("UNOBSERVED TASK: " + e.Exception);
 
             // Keep the mouse pointer away from the window so it doesn't hover over anything.
             Cursor.Position = new Point(SystemInformation.VirtualScreen.Right - 5, SystemInformation.VirtualScreen.Bottom - 5);
@@ -60,6 +62,7 @@ namespace TabbedNotepad.Screenshots
             form.Close();
             Pump(300);
             Console.WriteLine(_failures == 0 ? "All checks passed." : _failures + " check(s) failed.");
+            Console.WriteLine("Exit code: " + _failures);
             return _failures;
         }
 

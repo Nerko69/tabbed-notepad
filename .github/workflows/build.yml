@@ -35,7 +35,11 @@ jobs:
 
       - name: Run feature checks and take screenshots
         timeout-minutes: 5
-        run: tools/Screenshots/bin/Release/net48/Screenshots.exe screenshots
+        run: |
+          tools/Screenshots/bin/Release/net48/Screenshots.exe screenshots
+          $code = $LASTEXITCODE
+          Write-Host "Screenshots.exe exit code: $code"
+          exit $code
 
       - name: Upload screenshots
         if: always()
