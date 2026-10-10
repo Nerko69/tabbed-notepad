@@ -52,7 +52,7 @@ jobs:
           (github.event_name == 'push' && contains(github.event.head_commit.message, '[update screenshots]'))
         run: |
           New-Item -ItemType Directory -Force docs/images | Out-Null
-          Copy-Item screenshots/0*.png docs/images/ -Force
+          Copy-Item screenshots/[0-9]*.png docs/images/ -Force
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/images
