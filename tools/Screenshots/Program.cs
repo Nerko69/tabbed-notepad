@@ -290,26 +290,32 @@ namespace TabbedNotepad.Screenshots
             Check(header[0].StartsWith("Date/Time\t") && header[1] == "Path\t\t" + Path.Combine(notes, "Course ideas.txt"),
                 "new tab header: " + header[0] + " | " + header[1]);
             Check(newTab.Category == "Course", "new tab category");
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "11a") return;
             Call(form, "RenameTabTo", newTab, "Course plan");
             Check(newTab.Editor.LineText(1) == "Path\t\t" + Path.Combine(notes, "Course plan.txt"), "header path follows a rename: " + newTab.Editor.LineText(1));
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "11b") return;
             Call(form, "CopyFilePath", newTab);
             Check(Clipboard.GetText() == Path.Combine(notes, "Course plan.txt"), "Copy File Path: " + Clipboard.GetText());
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "11c") return;
             int all = tabs.TabCount;
             Call(form, "SetCategoryFilter", "CC247");
             Check(tabs.TabCount == 2 && tabs.TabPages.Cast<NoteTab>().All(t => t.Category == "CC247"), "category filter shows CC247 tabs: " + tabs.TabCount);
             var categoryMenu = Get<ToolStripMenuItem>(form, "_categoryMenu");
             Check(categoryMenu.Text.Contains("CC247"), "category menu shows the filter: " + categoryMenu.Text);
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "11d") return;
             categoryMenu.ShowDropDown();
             Pump(500);
             ShotUnion("12-categories.png", form.Bounds, categoryMenu.DropDown.Bounds);
             categoryMenu.HideDropDown();
             Call(form, "SaveAll", true, false);
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "11e") return;
             var savedNotes = new NoteStore(notes).Load();
             Check(savedNotes.Count(n => n.Category == "CC247") == 2 && savedNotes.Count == all, "categories saved and hidden tabs kept");
             Call(form, "SetCategoryFilter", (string)null);
             Check(tabs.TabCount == all, "all tabs shown again");
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "11f") return;
             var version = System.Diagnostics.FileVersionInfo.GetVersionInfo(typeof(MainForm).Assembly.Location);
             Check(version.ProductName == "Tabbed Notepad application by WebProgress.AI" && version.FileDescription == "Tabbed Notepad for better productivity",
                 "file properties: " + version.FileDescription + " / " + version.ProductName + " / " + version.FileVersion);
