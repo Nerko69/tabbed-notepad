@@ -45,7 +45,11 @@ jobs:
           path: screenshots/
 
       - name: Update screenshots in docs/images
-        if: github.event_name == 'workflow_dispatch' && inputs.update_screenshots
+        # Runs when started by hand with "update screenshots", or for a push whose commit message
+        # contains [update screenshots].
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.update_screenshots) ||
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[update screenshots]'))
         run: |
           New-Item -ItemType Directory -Force docs/images | Out-Null
           Copy-Item screenshots/0*.png docs/images/ -Force
