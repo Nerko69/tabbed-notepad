@@ -15,6 +15,7 @@ namespace TabbedNotepad
         public string Text;
         public Color? Color;
         public List<int> Bookmarks = new List<int>();   // 0-based line numbers
+        public string Category;                          // null = no category
 
         /// <summary>For a text file opened from elsewhere: its full path. Null for tabs kept in the notes folder.</summary>
         public string ExternalPath;
@@ -107,6 +108,7 @@ namespace TabbedNotepad
             var externalPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var colors = new Dictionary<string, Color>(StringComparer.OrdinalIgnoreCase);
             var bookmarks = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            var categories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             MissingFiles.Clear();
             string indexPath = Path.Combine(Folder, IndexFileName);
 
@@ -146,6 +148,9 @@ namespace TabbedNotepad
                         case "colors":
                             if (TryParseColor(value, out Color color)) colors[key] = color;
                             break;
+                        case "categories":
+                            if (value.Length > 0) categories[key] = value;
+                            break;
                         case "bookmarks":
                             // Saved as 1-based line numbers, like the line numbers on screen.
                             bookmarks[key] = value.Split(',').Select(v => int.TryParse(v.Trim(), out int n) ? n - 1 : -1).Where(n => n >= 0).ToList();
@@ -157,6 +162,7 @@ namespace TabbedNotepad
                 {
                     if (colors.TryGetValue(note.Id, out Color color)) note.Color = color;
                     if (bookmarks.TryGetValue(note.Id, out var lines)) note.Bookmarks = lines;
+                    if (categories.TryGetValue(note.Id, out string category)) note.Category = category;
                     if (externalPaths.TryGetValue(note.Id, out string path))
                     {
                         note.ExternalPath = path;
@@ -208,7 +214,7 @@ namespace TabbedNotepad
         {
             var list = notes.ToList();
             var sb = new StringBuilder();
-            sb.AppendLine("; Tabbed Notepad - tab order, tab names, tab colors, bookmarks and settings.");
+            sb.AppendLine("; Tabbed Notepad - tab order, tab names, colors, categories, bookmarks and settings.");
             sb.AppendLine("; Each tab's text is stored in <name>.txt in this folder, except tabs listed under [files],");
             sb.AppendLine("; which are text files opened from elsewhere and saved where they are.");
             sb.AppendLine("[settings]");
@@ -226,6 +232,10 @@ namespace TabbedNotepad
             sb.AppendLine("[colors]");
             foreach (var note in list.Where(n => n.Color.HasValue))
                 sb.Append(note.Id).Append('=').AppendLine(ColorToText(note.Color.Value));
+            sb.AppendLine();
+            sb.AppendLine("[categories]");
+            foreach (var note in list.Where(n => !string.IsNullOrEmpty(n.Category)))
+                sb.Append(note.Id).Append('=').AppendLine(CleanValue(note.Category));
             sb.AppendLine();
             sb.AppendLine("[bookmarks]");
             foreach (var note in list.Where(n => n.Bookmarks != null && n.Bookmarks.Count > 0))

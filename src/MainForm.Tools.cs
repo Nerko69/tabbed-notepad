@@ -198,7 +198,7 @@ namespace TabbedNotepad
             {
                 var link = tab.Editor.Links.FirstOrDefault(l => l.Url == url);
                 if (link.Url == null) continue;
-                _tabs.SelectedTab = tab;
+                ShowTab(tab);
                 tab.Editor.GoToLine(tab.Editor.LineFromChar(link.Start));
                 tab.Editor.Select(link.Start, link.Length);
                 return true;

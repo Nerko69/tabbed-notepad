@@ -264,7 +264,39 @@ namespace TabbedNotepad.Screenshots
             Call(form, "SetNavigator", false);
             Pump(200);
 
-            // 11. One row of tabs instead (View > Tabs in Multiple Rows off).
+            // 11. New tabs start with the date/time and their file path; Copy File Path; categories.
+            var newTab = (NoteTab)Call(form, "CreateTab", "Course ideas", "Course");
+            string[] header = newTab.Editor.PlainText.Split('\n');
+            Check(header[0].StartsWith("Date/Time\t") && header[1] == "Path\t\t" + Path.Combine(notes, "Course ideas.txt"),
+                "new tab header: " + header[0] + " | " + header[1]);
+            Check(newTab.Category == "Course", "new tab category");
+            Call(form, "RenameTabTo", newTab, "Course plan");
+            Check(newTab.Editor.LineText(1) == "Path\t\t" + Path.Combine(notes, "Course plan.txt"), "header path follows a rename: " + newTab.Editor.LineText(1));
+            Call(form, "CopyFilePath", newTab);
+            Check(Clipboard.GetText() == Path.Combine(notes, "Course plan.txt"), "Copy File Path: " + Clipboard.GetText());
+
+            int all = tabs.TabCount;
+            Call(form, "SetCategoryFilter", "CC247");
+            Check(tabs.TabCount == 2 && tabs.TabPages.Cast<NoteTab>().All(t => t.Category == "CC247"), "category filter shows CC247 tabs: " + tabs.TabCount);
+            var categoryMenu = Get<ToolStripMenuItem>(form, "_categoryMenu");
+            Check(categoryMenu.Text.Contains("CC247"), "category menu shows the filter: " + categoryMenu.Text);
+            categoryMenu.ShowDropDown();
+            Pump(500);
+            ShotUnion("12-categories.png", form.Bounds, categoryMenu.DropDown.Bounds);
+            categoryMenu.HideDropDown();
+            Call(form, "SaveAll", true, false);
+            var savedNotes = new NoteStore(notes).Load();
+            Check(savedNotes.Count(n => n.Category == "CC247") == 2 && savedNotes.Count == all, "categories saved and hidden tabs kept");
+            Call(form, "SetCategoryFilter", (string)null);
+            Check(tabs.TabCount == all, "all tabs shown again");
+
+            var version = System.Diagnostics.FileVersionInfo.GetVersionInfo(typeof(MainForm).Assembly.Location);
+            Check(version.ProductName == "Tabbed Notepad application by WebProgress.AI" && version.FileDescription == "Tabbed Notepad for better productivity",
+                "file properties: " + version.FileDescription + " / " + version.ProductName + " / " + version.FileVersion);
+            tabs.SelectedIndex = 0;
+            Pump(300);
+
+            // 12. One row of tabs instead (View > Tabs in Multiple Rows off).
             Call(form, "SetMultiRow", false);
             tabs.SelectedIndex = 0;
             Pump(500);
@@ -321,6 +353,12 @@ namespace TabbedNotepad.Screenshots
             ini.AddRange(names.Select(n => n + "=" + n));
             ini.Add("[colors]");
             ini.AddRange(names.Select((n, i) => n + "=" + colors[i]));
+            ini.Add("[categories]");
+            ini.Add("Project Alpha=CC247");
+            ini.Add("Client B=CC247");
+            ini.Add("Domains=WP Plugin");
+            ini.Add("Website=WP Plugin");
+            ini.Add("Hiring=OrgSys");
             ini.Add("[bookmarks]");
             ini.Add("Domains=3,7");
             File.WriteAllLines(Path.Combine(notes, "tabs.ini"), ini);

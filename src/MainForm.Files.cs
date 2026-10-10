@@ -61,7 +61,7 @@ namespace TabbedNotepad
                 (!t.IsExternal && string.Equals(_store.NotePath(t.Id), fullPath, StringComparison.OrdinalIgnoreCase)));
             if (open != null)
             {
-                _tabs.SelectedTab = open;
+                ShowTab(open);
                 SetStatus(Path.GetFileName(fullPath) + " is already open");
                 return;
             }
@@ -107,6 +107,7 @@ namespace TabbedNotepad
             {
                 tab = new NoteTab(NoteStore.NewExternalId(), "", "")
                 {
+                    Category = _categoryFilter == NoCategoryFilter ? null : _categoryFilter,
                     TabColor = TabColors.PickRandom(AllTabs.Select(t => t.TabColor), AllTabs.LastOrDefault()?.TabColor),
                 };
                 AddTab(tab);
@@ -142,6 +143,7 @@ namespace TabbedNotepad
             {
                 Dirty = true,
                 TabColor = source.TabColor,
+                Category = source.Category,
             };
             AddTab(copy, _tabs.TabPages.IndexOf(source) + 1);
             _indexDirty = true;
@@ -196,6 +198,7 @@ namespace TabbedNotepad
             var oldStore = _store;
             foreach (var pair in oldStore.Settings) target.Settings[pair.Key] = pair.Value;
             _store = target;
+            foreach (var tab in notes) UpdatePathHeader(tab, oldStore.NotePath(tab.Id), target.NotePath(tab.Id));
             foreach (var tab in notes) tab.Dirty = true;
             _indexDirty = true;
             if (!SaveAll(showStatus: false, quiet: true))

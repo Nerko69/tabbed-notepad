@@ -273,7 +273,8 @@ namespace TabbedNotepad
 
             int here = 0, total = 0, tabs = 0;
             _tabMatchCounts.Clear();
-            foreach (var tab in AllTabs)
+            foreach (var tab in AllTabs) if (!_tabs.TabPages.Contains(tab)) tab.Editor.SetHighlight(null, false);
+            foreach (var tab in VisibleTabs)
             {
                 bool include = allTabs || tab == CurrentTab;
                 tab.Editor.SetHighlight(include ? term : null, matchCase);
@@ -442,7 +443,7 @@ namespace TabbedNotepad
         private void ShowMatchNumber(NoteTab tab, int position, string text, bool matchCase, bool allTabs)
         {
             int before = 0, total = 0;
-            foreach (var t in allTabs ? AllTabs : new[] { tab })
+            foreach (var t in allTabs ? VisibleTabs : new[] { tab })
             {
                 var positions = NoteEditor.FindAll(t.Editor.PlainText, text, matchCase);
                 if (t == tab) before = total + positions.Count(p => p < position);

@@ -46,13 +46,36 @@ At the bottom, the **status bar** shows:
 | Switch tabs | Click a tab, **Ctrl+Tab** / **Ctrl+Shift+Tab**, or **Ctrl+1 … Ctrl+9** |
 | Move a tab | Drag it, or use the **◄ ►** buttons (**Ctrl+Shift+Page Up / Page Down**) |
 | Change a tab's color | Right-click the tab → **Tab Color** |
+| Put a tab in a category | Right-click the tab → **Category** (or choose one when you create the tab) |
+| Copy the path of a tab's file | Right-click the tab → **Copy File Path** (**Show in Folder** opens it in Explorer) |
 | Close a tab | **Ctrl+W**, middle-click the tab, or right-click → **Close Tab** |
 
 **Colors.** Every new tab gets a random color, different from the tabs next to it. To change it,
 right-click the tab → **Tab Color**. Pick a color, **Random Color**, or **Custom Color…** for any
 color you like. The same menu is under **Format → Tab Color**.
 
-![Right-click a tab to rename it, change its color, move it or close it](images/05-tab-color.png)
+![Right-click a tab to rename it, change its color or category, copy its file path, move it or close it](images/05-tab-color.png)
+
+**Categories.** Group your tabs into categories such as CC247, OrgSys, WP Plugin, GHL, Windows,
+Linux, Mobile App or Course. Use the **Category** menu on the menu bar to **show only the tabs of
+one category**. The other tabs stay open and keep saving; choose **All tabs** to see them again.
+
+- Choose a category when you create a tab, or right-click a tab → **Category**.
+- A new tab gets the category you're viewing.
+- **Manage Categories…** (in the Category menu, or **Tools → Tab Categories…**) adds, renames,
+  removes and reorders categories.
+- A tab's category shows in its tooltip.
+
+![Category menu: showing only the CC247 tabs](images/12-categories.png)
+
+**New tabs** start with the date and time they were created and the full path of their file:
+
+```
+Date/Time	4:49 PM 10/10/2026
+Path		C:\Users\me\Documents\TabbedNotepad\NewTabName.txt
+```
+
+If you rename the tab, or move your notes with *Save All Tabs As*, the Path line is updated.
 
 **Rows.** When there are more tabs than fit across the window, they wrap onto more rows, so every
 tab stays visible. If you prefer a single row, turn off **View → Tabs in Multiple Rows**. The

@@ -34,6 +34,7 @@ namespace TabbedNotepad
         private readonly Timer _saveTimer;
         private readonly Timer _infoTimer;   // word count and navigator, a moment after typing
         private LinkStore _links;
+        private readonly List<NoteTab> _allTabs = new List<NoteTab>();
 
         private Font _editorFont = new Font("Consolas", 11f);
         private bool _indexDirty;
@@ -78,6 +79,14 @@ namespace TabbedNotepad
             _tabMenu = new ContextMenuStrip();
             _tabMenu.Items.Add("&Rename...", null, (s, e) => RenameTab(CurrentTab));
             _tabMenu.Items.Add(BuildColorMenu("Tab &Color"));
+            var tabCategoryMenu = new ToolStripMenuItem("Cate&gory");
+            tabCategoryMenu.DropDownOpening += (s, e) => FillTabCategoryMenu(tabCategoryMenu);
+            tabCategoryMenu.DropDownItems.Add("(loading)");
+            _tabMenu.Items.Add(tabCategoryMenu);
+            _tabMenu.Items.Add(new ToolStripSeparator());
+            _tabMenu.Items.Add("Copy File &Path", null, (s, e) => CopyFilePath(CurrentTab));
+            _tabMenu.Items.Add("Show in &Folder", null, (s, e) => ShowInFolder(CurrentTab));
+            _tabMenu.Items.Add(new ToolStripSeparator());
             _tabMenu.Items.Add("&New Tab", null, (s, e) => NewTab());
             _tabMenu.Items.Add(new ToolStripSeparator());
             _tabMenu.Items.Add("Move &Left", null, (s, e) => MoveCurrentTab(-1));
@@ -157,6 +166,8 @@ namespace TabbedNotepad
             view.DropDownItems.AddRange(new ToolStripItem[] { _lineNumbersItem, _navigatorItem, new ToolStripSeparator(), _multiRowItem, _popupSearchItem });
 
             var tools = new ToolStripMenuItem("&Tools");
+            tools.DropDownItems.Add(Item("Tab &Categories...", Keys.None, (s, e) => ManageCategories()));
+            tools.DropDownItems.Add(new ToolStripSeparator());
             tools.DropDownItems.Add(Item("&Labels...", Keys.None, (s, e) => ShowLabels()));
             tools.DropDownItems.Add(Item("&Make Selected Word a Label", Keys.None, (s, e) => AddSelectionAsLabel()));
             tools.DropDownItems.Add(new ToolStripSeparator());
@@ -165,8 +176,13 @@ namespace TabbedNotepad
             var help = new ToolStripMenuItem("&Help");
             help.DropDownItems.Add(Item("&User Guide", Keys.F1, (s, e) => NoteEditor.OpenLink(UserGuideUrl)));
             help.DropDownItems.Add(Item("&Keyboard Shortcuts", Keys.None, (s, e) => ShowHelp()));
+            help.DropDownItems.Add(new ToolStripSeparator());
+            help.DropDownItems.Add(Item("&About Tabbed Notepad", Keys.None, (s, e) => { using (var about = new AboutDialog()) about.ShowDialog(this); }));
 
-            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, view, tools, help });
+            _categoryMenu = new ToolStripMenuItem("Category: All") { ToolTipText = "Show only the tabs of one category" };
+            _categoryMenu.DropDownOpening += (s, e) => FillCategoryFilterMenu();
+            _categoryMenu.DropDownItems.Add("(loading)");
+            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, view, tools, help, _categoryMenu });
             // Right side of the menu bar: search, move-tab arrows and "+ New Tab".
             // Right-aligned items are placed from the right edge inwards, so they're added in reverse.
             var plus = new ToolStripMenuItem("+ New Tab") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "New tab (Ctrl+T)" };
@@ -269,7 +285,11 @@ namespace TabbedNotepad
 
         private NoteTab CurrentTab => _tabs.SelectedTab as NoteTab;
         private NoteEditor CurrentEditor => CurrentTab?.Editor;
-        private IEnumerable<NoteTab> AllTabs => _tabs.TabPages.Cast<NoteTab>();
+        /// <summary>All tabs, in their saved order, including those hidden by the category filter.</summary>
+        private IEnumerable<NoteTab> AllTabs => _allTabs;
+
+        /// <summary>The tabs shown right now (all of them, or one category's).</summary>
+        private IEnumerable<NoteTab> VisibleTabs => _tabs.TabPages.Cast<NoteTab>();
 
         // ---------------------------------------------------------------- loading & saving
 
@@ -278,11 +298,12 @@ namespace TabbedNotepad
         {
             _loading = true;
             _tabs.SuspendLayout();
-            foreach (var old in AllTabs.ToList())
+            foreach (var old in _allTabs.ToList())
             {
-                _tabs.TabPages.Remove(old);
+                if (_tabs.TabPages.Contains(old)) _tabs.TabPages.Remove(old);
                 old.Dispose();
             }
+            _allTabs.Clear();
 
             List<NoteData> notes = null;
             while (notes == null)
@@ -325,6 +346,9 @@ namespace TabbedNotepad
             _lineNumbersItem.Checked = !settings.TryGetValue("linenumbers", out string lineNumbers) || lineNumbers != "0";
             _popupSearchItem.Checked = !settings.TryGetValue("popupsearch", out string popup) || popup != "0";
             NoteLabels.FromSetting(settings.TryGetValue("labels", out string labels) ? labels : "");
+            TabCategories.FromSetting(settings.TryGetValue("categories", out string categories) ? categories : null);
+            _categoryFilter = settings.TryGetValue("categoryfilter", out string filter) && filter.Length > 0 ? filter : null;
+            if (_categoryFilter != null && _categoryFilter != NoCategoryFilter && !TabCategories.Items.Contains(_categoryFilter)) _categoryFilter = null;
             if (applyWindowSettings)
                 RestoreWindowBounds(settings.TryGetValue("window", out string bounds) ? bounds : null);
 
@@ -335,6 +359,7 @@ namespace TabbedNotepad
                     ExternalPath = note.ExternalPath,
                     FileEncoding = note.FileEncoding,
                     FileTimestampUtc = note.FileTimestampUtc,
+                    Category = note.Category,
                 };
                 if (note.Color.HasValue)
                 {
@@ -349,17 +374,21 @@ namespace TabbedNotepad
                 tab.Editor.SetBookmarkLines(note.Bookmarks);
             }
 
-            if (_tabs.TabCount == 0)
+            if (_allTabs.Count == 0)
             {
                 AddTab(new NoteTab(UniqueId("My notes", null), "My notes", "") { TabColor = TabColors.PickRandom(new Color[0]) });
                 _indexDirty = true;
             }
+            if (_tabs.TabCount == 0) ApplyCategoryFilter(null, keepEmpty: false);   // the saved category has no tabs any more
 
             // Always select a tab explicitly: before the window exists the tab control reports
             // "no tab selected", which left the title bar without the tab name.
-            _tabs.SelectedIndex = settings.TryGetValue("selected", out string sel) && int.TryParse(sel, out int index) && index >= 0 && index < _tabs.TabCount
-                ? index
-                : 0;
+            // "selected" is the selected tab's id (older versions saved its position).
+            settings.TryGetValue("selected", out string sel);
+            var selectedTab = VisibleTabs.FirstOrDefault(t => t.Id == sel);
+            if (selectedTab != null) _tabs.SelectedTab = selectedTab;
+            else _tabs.SelectedIndex = int.TryParse(sel, out int index) && index >= 0 && index < _tabs.TabCount ? index : 0;
+            UpdateCategoryMenuText();
 
             _tabs.ResumeLayout();
             _loading = false;
@@ -473,6 +502,12 @@ namespace TabbedNotepad
             tab.LinkCopied += (s, url) => SetStatus("Link copied: " + url);
             UpdateTabToolTip(tab);
 
+            // The master list keeps every tab; the tab strip shows those in the current category.
+            if (index >= 0 && index < _tabs.TabCount)
+                _allTabs.Insert(_allTabs.IndexOf((NoteTab)_tabs.TabPages[index]), tab);
+            else
+                _allTabs.Add(tab);
+            if (!PassesFilter(tab)) return;
             if (index < 0 || index >= _tabs.TabCount)
                 _tabs.TabPages.Add(tab);
             else
@@ -481,9 +516,10 @@ namespace TabbedNotepad
 
         private void UpdateTabToolTip(NoteTab tab)
         {
-            tab.ToolTipText = tab.IsExternal
+            tab.ToolTipText = (tab.IsExternal
                 ? tab.Text + "\nFile: " + tab.ExternalPath
-                : tab.Text + "\nSaved as: " + _store.NotePath(tab.Id);
+                : tab.Text + "\nSaved as: " + _store.NotePath(tab.Id))
+                + (tab.Category != null ? "\nCategory: " + tab.Category : "");
         }
 
         private void ScheduleSave()
@@ -522,7 +558,7 @@ namespace TabbedNotepad
                 }
 
                 var settings = _store.Settings;
-                string selected = _tabs.SelectedIndex.ToString(CultureInfo.InvariantCulture);
+                string selected = CurrentTab?.Id ?? "";
                 string bounds = WindowBoundsText();
                 if (!settings.TryGetValue("selected", out string oldSel) || oldSel != selected ||
                     !settings.TryGetValue("window", out string oldBounds) || oldBounds != bounds)
@@ -540,6 +576,8 @@ namespace TabbedNotepad
                     settings["navigator"] = _navigatorItem.Checked ? "1" : "0";
                     settings["popupsearch"] = _popupSearchItem.Checked ? "1" : "0";
                     settings["labels"] = NoteLabels.ToSetting();
+                    settings["categories"] = TabCategories.ToSetting();
+                    settings["categoryfilter"] = _categoryFilter ?? "";
                     _store.SaveIndex(AllTabs.Select(t => t.ToData()));
                     _indexDirty = false;
                 }
@@ -647,19 +685,39 @@ namespace TabbedNotepad
 
         private void NewTab()
         {
-            string name = InputDialog.Ask(this, "New Tab", "Name for the new tab (for example a project name):", "Project " + (_tabs.TabCount + 1));
-            if (name == null) return;
+            string category = _categoryFilter == NoCategoryFilter ? null : _categoryFilter;
+            using (var dialog = new NewTabDialog("Project " + (_allTabs.Count + 1), category))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK || dialog.TabName.Length == 0) return;
+                CreateTab(dialog.TabName, dialog.Category);
+            }
+        }
 
-            var tab = new NoteTab(UniqueId(name, null), name, "")
+        /// <summary>
+        /// Adds a new tab. Its text starts with the date/time it was made and the path of its file:
+        ///   Date/Time	4:49 PM 10/10/2026
+        ///   Path		C:\Users\me\Documents\TabbedNotepad\Name.txt
+        /// </summary>
+        private NoteTab CreateTab(string name, string category)
+        {
+            string id = UniqueId(name, null);
+            DateTime now = DateTime.Now;
+            string header = "Date/Time\t" + now.ToShortTimeString() + " " + now.ToShortDateString() + "\n" +
+                            PathHeaderPrefix + _store.NotePath(id) + "\n\n";
+            var tab = new NoteTab(id, name, header)
             {
                 Dirty = true,
-                TabColor = TabColors.PickRandom(AllTabs.Select(t => t.TabColor), AllTabs.LastOrDefault()?.TabColor),
+                Category = category,
+                TabColor = TabColors.PickRandom(AllTabs.Select(t => t.TabColor), VisibleTabs.LastOrDefault()?.TabColor),
             };
+            if (!PassesFilter(tab)) ApplyCategoryFilter(category ?? NoCategoryFilter, keepEmpty: true);
             AddTab(tab);
             _tabs.SelectedTab = tab;
+            tab.Editor.Select(tab.Editor.TextLength, 0);
             _indexDirty = true;
             SaveAll(showStatus: false);
             tab.Editor.Focus();
+            return tab;
         }
 
         private void RenameTab(NoteTab tab)
@@ -667,6 +725,11 @@ namespace TabbedNotepad
             if (tab == null) return;
             string name = InputDialog.Ask(this, "Rename Tab", "New name for this tab:", tab.Text);
             if (name == null || name == tab.Text) return;
+            RenameTabTo(tab, name);
+        }
+
+        private void RenameTabTo(NoteTab tab, string name)
+        {
 
             if (!tab.IsExternal)
             {
@@ -675,8 +738,10 @@ namespace TabbedNotepad
                 string newId = UniqueId(name, tab);
                 try
                 {
+                    string oldPath = _store.NotePath(tab.Id);
                     _store.RenameNote(tab.Id, newId);
                     tab.Id = newId;
+                    UpdatePathHeader(tab, oldPath, _store.NotePath(newId));
                 }
                 catch (Exception ex)
                 {
@@ -723,10 +788,16 @@ namespace TabbedNotepad
 
             // Select the neighbouring tab first so focus never sits on a page being removed.
             if (_tabs.TabCount == 1)
-                AddTab(new NoteTab(UniqueId("My notes", tab), "My notes", "") { TabColor = TabColors.PickRandom(new[] { tab.TabColor }) });
+            {
+                if (_allTabs.Count > 1)
+                    ApplyCategoryFilter(null, keepEmpty: false);   // last tab of this category: show all tabs again
+                else
+                    AddTab(new NoteTab(UniqueId("My notes", tab), "My notes", "") { TabColor = TabColors.PickRandom(new[] { tab.TabColor }) });
+            }
             int index = _tabs.TabPages.IndexOf(tab);
             _tabs.SelectedIndex = index + 1 < _tabs.TabCount ? index + 1 : index - 1;
             _tabs.TabPages.Remove(tab);
+            _allTabs.Remove(tab);
             tab.Dispose();
             _indexDirty = true;
             SaveAll(showStatus: false);
@@ -750,6 +821,15 @@ namespace TabbedNotepad
             _tabs.TabPages.Insert(newIndex, tab);
             _tabs.SelectedTab = tab;
             _tabs.ResumeLayout();
+
+            // Same move in the full list: next to its new neighbour among the shown tabs.
+            _allTabs.Remove(tab);
+            if (newIndex + 1 < _tabs.TabCount)
+                _allTabs.Insert(_allTabs.IndexOf((NoteTab)_tabs.TabPages[newIndex + 1]), tab);
+            else if (newIndex > 0)
+                _allTabs.Insert(_allTabs.IndexOf((NoteTab)_tabs.TabPages[newIndex - 1]) + 1, tab);
+            else
+                _allTabs.Add(tab);
             _indexDirty = true;
             ScheduleSave();
         }
@@ -1043,7 +1123,9 @@ namespace TabbedNotepad
                 "  Ctrl+W\tClose tab (or middle-click the tab)\n" +
                 "  Ctrl+Tab\tNext tab  (Ctrl+Shift+Tab: previous)\n" +
                 "  Ctrl+1..9\tJump to tab 1..9\n" +
-                "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the arrow buttons)\n\n" +
+                "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the arrow buttons)\n" +
+                "  Right-click a tab\tColor, category, copy file path, show in folder\n" +
+                "  Category menu\tShow only the tabs of one category\n\n" +
                 "Editing\n" +
                 "  Ctrl+Z / Ctrl+Y\tUndo / Redo\n" +
                 "  F5\tInsert time and date\n" +
