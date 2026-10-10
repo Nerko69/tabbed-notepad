@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -158,6 +160,151 @@ namespace TabbedNotepad
         {
             if (_search.Text.Length > 0)
                 _findNext(_search.Text, MatchCase, AllTabs);
+        }
+    }
+
+    /// <summary>
+    /// Tools > Labels: the words you mark your notes with (e.g. AVADOMS, REGISTERED). Each gets a
+    /// color and is highlighted wherever it appears; the Navigator lists where they are.
+    /// </summary>
+    internal sealed class LabelsDialog : Form
+    {
+        private readonly ListView _list;
+        private readonly List<NoteLabel> _labels;
+        private readonly ImageList _swatches = new ImageList();
+
+        /// <summary>The label to insert at the cursor, if the user chose "Insert".</summary>
+        public string InsertWord { get; private set; }
+
+        public List<NoteLabel> Labels => _labels;
+
+        public LabelsDialog(IEnumerable<NoteLabel> labels)
+        {
+            _labels = labels.Select(l => new NoteLabel { Word = l.Word, Color = l.Color }).ToList();
+
+            Text = "Labels";
+            Font = SystemFonts.MessageBoxFont;
+            Size = new Size(Dpi.Scale(460), Dpi.Scale(420));
+            StartPosition = FormStartPosition.CenterParent;
+            ShowInTaskbar = false;
+            MinimizeBox = false;
+            MaximizeBox = false;
+
+            var intro = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = Dpi.Scale(64),
+                Padding = new Padding(Dpi.Scale(8), Dpi.Scale(8), Dpi.Scale(8), 0),
+                Text = "Labels are words you use to mark your notes, like AVADOMS or REGISTERED. " +
+                       "They are highlighted in their color wherever you type them (whole words, exact case), " +
+                       "and the Navigator (F9) shows where they are.",
+            };
+
+            _swatches.ImageSize = new Size(Dpi.Scale(16), Dpi.Scale(16));
+            _list = new ListView
+            {
+                Dock = DockStyle.Fill,
+                View = View.Details,
+                FullRowSelect = true,
+                HeaderStyle = ColumnHeaderStyle.None,
+                HideSelection = false,
+                MultiSelect = false,
+                SmallImageList = _swatches,
+            };
+            _list.Columns.Add("Label", Dpi.Scale(300));
+
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, FlowDirection = FlowDirection.TopDown, Padding = new Padding(Dpi.Scale(6)) };
+            var add = new Button { Text = "Add...", Width = Dpi.Scale(110) };
+            var color = new Button { Text = "Change Color...", Width = Dpi.Scale(110) };
+            var rename = new Button { Text = "Rename...", Width = Dpi.Scale(110) };
+            var remove = new Button { Text = "Remove", Width = Dpi.Scale(110) };
+            var insert = new Button { Text = "Insert in Note", Width = Dpi.Scale(110) };
+            var ok = new Button { Text = "OK", Width = Dpi.Scale(110), DialogResult = DialogResult.OK, Margin = new Padding(3, Dpi.Scale(20), 3, 3) };
+            var cancel = new Button { Text = "Cancel", Width = Dpi.Scale(110), DialogResult = DialogResult.Cancel };
+            buttons.Controls.AddRange(new Control[] { add, color, rename, remove, insert, ok, cancel });
+
+            Controls.Add(_list);
+            Controls.Add(buttons);
+            Controls.Add(intro);
+            AcceptButton = ok;
+            CancelButton = cancel;
+
+            add.Click += (s, e) =>
+            {
+                string word = InputDialog.Ask(this, "Add Label", "Label word (one word, e.g. AVADOMS):", "");
+                word = CleanWord(word);
+                if (word == null) return;
+                if (_labels.Any(l => l.Word == word)) return;
+                var used = _labels.Select(l => l.Color);
+                _labels.Add(new NoteLabel { Word = word, Color = TabColors.PickRandom(used) });
+                Fill(word);
+            };
+            rename.Click += (s, e) =>
+            {
+                var label = Selected;
+                if (label == null) return;
+                string word = CleanWord(InputDialog.Ask(this, "Rename Label", "New word for this label:", label.Word));
+                if (word == null || _labels.Any(l => l != label && l.Word == word)) return;
+                label.Word = word;
+                Fill(word);
+            };
+            color.Click += (s, e) =>
+            {
+                var label = Selected;
+                if (label == null) return;
+                using (var dialog = new ColorDialog { Color = label.Color, FullOpen = true })
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                    {
+                        label.Color = dialog.Color;
+                        Fill(label.Word);
+                    }
+            };
+            remove.Click += (s, e) =>
+            {
+                var label = Selected;
+                if (label == null) return;
+                _labels.Remove(label);
+                Fill(null);
+            };
+            insert.Click += (s, e) =>
+            {
+                if (Selected == null) return;
+                InsertWord = Selected.Word;
+                DialogResult = DialogResult.OK;
+            };
+            _list.DoubleClick += (s, e) => insert.PerformClick();
+            Fill(null);
+        }
+
+        private NoteLabel Selected => _list.SelectedItems.Count > 0 ? (NoteLabel)_list.SelectedItems[0].Tag : null;
+
+        /// <summary>Labels are single words: letters, digits, _ and -.</summary>
+        private static string CleanWord(string word)
+        {
+            if (word == null) return null;
+            word = new string(word.Trim().Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-').ToArray());
+            return word.Length == 0 ? null : word;
+        }
+
+        private void Fill(string select)
+        {
+            _list.BeginUpdate();
+            _list.Items.Clear();
+            _swatches.Images.Clear();
+            foreach (var label in _labels.OrderBy(l => l.Word, StringComparer.OrdinalIgnoreCase))
+            {
+                _swatches.Images.Add(TabColors.Swatch(label.Color, _swatches.ImageSize.Width));
+                var item = new ListViewItem(label.Word, _swatches.Images.Count - 1) { Tag = label };
+                _list.Items.Add(item);
+                if (label.Word == select) item.Selected = true;
+            }
+            _list.EndUpdate();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _swatches.Dispose();
+            base.Dispose(disposing);
         }
     }
 }

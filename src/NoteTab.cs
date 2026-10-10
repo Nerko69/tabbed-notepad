@@ -7,13 +7,18 @@ using System.Windows.Forms;
 
 namespace TabbedNotepad
 {
-    /// <summary>A tab page holding one note: a strip in the tab's color, the editor and the link "copy" icon.</summary>
+    /// <summary>
+    /// A tab page holding one note: a strip in the tab's color, line numbers, the editor, the marker
+    /// bar and the link "copy" icon.
+    /// </summary>
     internal sealed class NoteTab : TabPage
     {
         private readonly Panel _colorStrip;
         private readonly CopyLinkButton _copyButton;
         private readonly Timer _hideCopyTimer;
         private readonly ToolTip _toolTip;
+        private readonly LineNumberGutter _gutter;
+        private readonly MarkerBar _markerBar;
         private Color _tabColor;
 
         /// <summary>The tab's file name in the notes folder, without ".txt" (for files opened from elsewhere: an internal id).</summary>
@@ -36,7 +41,7 @@ namespace TabbedNotepad
             Text = title;
             UseVisualStyleBackColor = false;
             BackColor = SystemColors.Window;
-            Padding = new Padding(Dpi.Scale(4), 0, 0, 0);
+            Padding = new Padding(0);
 
             Editor = new NoteEditor();
             Editor.Text = text ?? "";
@@ -49,8 +54,13 @@ namespace TabbedNotepad
             _toolTip = new ToolTip();
             _toolTip.SetToolTip(_copyButton, "Copy link");
 
+            _gutter = new LineNumberGutter(Editor);
+            _markerBar = new MarkerBar(Editor);
+
             // Docked controls are laid out in reverse order of adding.
             Controls.Add(Editor);
+            Controls.Add(_gutter);
+            Controls.Add(_markerBar);
             Controls.Add(gap);
             Controls.Add(_colorStrip);
             Controls.Add(_copyButton);
@@ -83,6 +93,12 @@ namespace TabbedNotepad
             }
         }
 
+        public bool ShowLineNumbers
+        {
+            get => _gutter.Visible;
+            set => _gutter.Visible = value;
+        }
+
         public NoteData ToData() => new NoteData
         {
             Id = Id,
@@ -92,6 +108,7 @@ namespace TabbedNotepad
             ExternalPath = ExternalPath,
             FileEncoding = FileEncoding,
             FileTimestampUtc = FileTimestampUtc,
+            Bookmarks = Editor.BookmarkLines,
         };
 
         private void UpdateCopyButton(Point mouse)

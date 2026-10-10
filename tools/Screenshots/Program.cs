@@ -98,23 +98,32 @@ namespace TabbedNotepad.Screenshots
                 Check(editor.PlainText == before, "Undo after Redo");
             }
 
-            // 3. Search bar: highlight all matches in all tabs, Enter jumps to the next one.
+            // 3. Pop-up search (Ctrl+F): "This tab" by default, a count circle on every tab with
+            //    matches, markers next to the scroll bar, Enter jumps to the next match.
             var searchBox = Get<ToolStripTextBox>(form, "_searchBox");
             var searchCount = Get<ToolStripLabel>(form, "_searchCount");
+            var scope = Get<ToolStripComboBox>(form, "_searchScope");
+            Check(scope.SelectedIndex == 0, "search defaults to This tab");
             tabs.SelectedIndex = 0;
             alpha.Editor.Select(0, 0);
             Pump(200);
-            searchBox.Text = "client";
+            Call(form, "ShowFindPopup");
+            var popup = Get<FindPopup>(form, "_findPopup");
+            popup.SearchTextBox.Text = "client";   // as if typed
+            Pump(150);
+            Check(searchBox.Text == "client", "pop-up search and search box stay in sync");
             Call(form, "UpdateSearchHighlights");
-            Check(searchCount.Text.Contains("matches in"), "search count shown: " + searchCount.Text);
-            Call(form, "Find", "client", false, true, true, false);
-            Call(form, "Find", "client", false, true, true, false);
-            Check(searchCount.Text.StartsWith("2 of "), "match number shown: " + searchCount.Text);
-            searchBox.Focus();
+            Check(searchCount.Text.Contains("here") && searchCount.Text.Contains("tabs"), "search count shown: " + searchCount.Text);
+            var badges = Get<Dictionary<NoteTab, int>>(form, "_tabMatchCounts");
+            Check(badges.Count >= 4 && badges[alpha] == 2, "match counts on the tabs: " + string.Join(", ", badges.Select(b => b.Key.Text + "=" + b.Value)));
+            Call(form, "Find", "client", false, false, true, false);
+            Call(form, "Find", "client", false, false, true, false);
+            Check(searchCount.Text.StartsWith("2 of 2"), "match number shown: " + searchCount.Text);
+            Check(popup.CountText == searchCount.Text, "pop-up shows the count too");
             Pump(400);
             Shot(form, "02-search.png");
-            searchBox.Text = "";
-            Call(form, "UpdateSearchHighlights");
+            Call(form, "CloseFindPopup");
+            Check(searchBox.Text == "" && badges.Count == 0, "closing the pop-up clears the search");
 
             // 4. Find dialog with Select All.
             tabs.SelectedIndex = 0;
@@ -190,7 +199,72 @@ namespace TabbedNotepad.Screenshots
             Check(reloaded.All(n => n.Color.HasValue), "tab colors saved");
             Check(reloaded.Any(n => n.ExternalPath != null), "opened text file remembered");
 
-            // 10. One row of tabs instead (Format > Tabs in Multiple Rows off).
+            // 10. Organizing: date lines, labels, bookmarks, navigator, word count, links.
+            tabs.SelectedIndex = 1;
+            Pump(300);
+            var domains = (NoteTab)tabs.SelectedTab;
+            var ed = domains.Editor;
+            Check(domains.Text == "Domains", "Domains tab");
+            Check(ed.SectionLines.Count == 2, "date lines found: " + ed.SectionLines.Count);
+            Check(ed.LabelSpans.Count(l => l.Label?.Word == "AVADOMS") == 3 && ed.LabelSpans.Count(l => l.Label?.Word == "REGISTERED") == 1,
+                "labels found: " + string.Join(", ", ed.LabelSpans.Select(l => l.Label?.Word)));
+            Check(ed.BookmarkLines.SequenceEqual(new[] { 2, 6 }), "bookmarks loaded: " + string.Join(",", ed.BookmarkLines.Select(l => l + 1)));
+            // Typing above a bookmark moves it down with its line.
+            ed.Select(0, 0);
+            ed.ReplaceSelection("new first line\n");
+            Pump(200);
+            Check(ed.BookmarkLines.SequenceEqual(new[] { 3, 7 }), "bookmarks move with their lines: " + string.Join(",", ed.BookmarkLines.Select(l => l + 1)));
+            ed.Undo();
+            Pump(200);
+            ed.ToggleBookmark(0);
+            Check(ed.IsBookmarked(0), "click-to-bookmark");
+            ed.ToggleBookmark(0);
+            // Insert date line (Ctrl+D).
+            ed.Select(ed.TextLength, 0);
+            Call(form, "InsertDateLine");
+            Check(ed.SectionLines.Count == 3 && ed.LineText(ed.SectionLines[2]).EndsWith(DateTime.Now.ToString("yyyy-MM-dd")), "Insert Date Line");
+            ed.Undo();
+            Pump(200);
+            Check(ed.SectionLines.Count == 2, "Undo of the date line");
+            Call(form, "UpdateInfo");
+            var stats = Get<ToolStripStatusLabel>(form, "_statsLabel");
+            Check(stats.Text.Contains("words") && stats.Text.Contains("characters"), "word counter: " + stats.Text);
+            Call(form, "SetNavigator", true);
+            ed.Select(0, 0);
+            Pump(600);
+            Shot(form, "09-organize.png");
+            Call(form, "SaveAll", true, false);
+            var saved = new NoteStore(notes).Load().First(n => n.Id == "Domains");
+            Check(saved.Bookmarks.SequenceEqual(new[] { 2, 6 }), "bookmarks saved: " + string.Join(",", saved.Bookmarks.Select(l => l + 1)));
+
+            // Labels window.
+            var labelsDialog = new LabelsDialog(NoteLabels.Items);
+            labelsDialog.StartPosition = FormStartPosition.Manual;
+            labelsDialog.Location = new Point(form.Left + 120, form.Top + 120);
+            labelsDialog.Show(form);
+            Pump(500);
+            ShotUnion("10-labels.png", form.Bounds, labelsDialog.Bounds);
+            labelsDialog.Close();
+            Pump(200);
+
+            // All Links window and web page.
+            var linkStore = Get<LinkStore>(form, "_links");
+            Check(linkStore.All.Count() >= 5, "links remembered: " + linkStore.All.Count());
+            Check(File.Exists(Path.Combine(notes, LinkStore.FileName)), "links.tsv written");
+            var current = (HashSet<string>)Call(form, "CurrentUrls");
+            string page = linkStore.WriteWebPage(notes, current);
+            Check(File.ReadAllText(page).Contains("namecheap.com"), "links web page generated");
+            var linksDialog = new LinksDialog(linkStore, current, url => false, () => page);
+            linksDialog.StartPosition = FormStartPosition.Manual;
+            linksDialog.Location = new Point(form.Left + 60, form.Top + 90);
+            linksDialog.Show(form);
+            Pump(500);
+            ShotUnion("11-links.png", form.Bounds, linksDialog.Bounds);
+            linksDialog.Close();
+            Call(form, "SetNavigator", false);
+            Pump(200);
+
+            // 11. One row of tabs instead (View > Tabs in Multiple Rows off).
             Call(form, "SetMultiRow", false);
             tabs.SelectedIndex = 0;
             Pump(500);
@@ -215,6 +289,15 @@ namespace TabbedNotepad.Screenshots
                 "2:30 PM 10/8/2026\n" +
                 "Call with the client about the login page. They want a \"remember me\" option.\n" +
                 "TODO: update notes for the Friday demo\n");
+            Note("Domains",
+                "-----------------2026-10-07\n" +
+                "Names for the new shop\n" +
+                "coolshop.com AVADOMS\n" +
+                "bestshop.net taken\n" +
+                "coolshop.io AVADOMS https://www.namecheap.com/domains/\n" +
+                "-----------------2026-10-08\n" +
+                "coolshop.com REGISTERED at https://www.namecheap.com\n" +
+                "shopcool.net AVADOMS - ask the client\n");
             Note("Client B",
                 "Client B - support contract\n" +
                 "Portal: https://portal.example.com/client-b\n" +
@@ -232,12 +315,14 @@ namespace TabbedNotepad.Screenshots
             Note("Taxes", "Documents to collect\n");
             Note("Home", "Fix the kitchen tap\n");
 
-            var colors = new[] { "#A5D8FF", "#FFC9C9", "#B2F2BB", "#FFD8A8", "#D0BFFF", "#FFF09E", "#96F2D7", "#FCC2D7", "#BAC8FF", "#D8F5A2", "#99E9F2", "#DEE2E6", "#FFD8A8", "#B2F2BB" };
-            var names = new[] { "Project Alpha", "Client B", "Website", "Marketing", "Invoices", "Ideas", "Travel", "Recipes", "Reading list", "Meeting notes", "Budget 2026", "Hiring", "Taxes", "Home" };
-            var ini = new List<string> { "[settings]", "window=20,20,1000,640,0", "[tabs]" };
+            var colors = new[] { "#A5D8FF", "#FFF09E", "#FFC9C9", "#B2F2BB", "#FFD8A8", "#D0BFFF", "#FFF09E", "#96F2D7", "#FCC2D7", "#BAC8FF", "#D8F5A2", "#99E9F2", "#DEE2E6", "#FFD8A8", "#B2F2BB" };
+            var names = new[] { "Project Alpha", "Domains", "Client B", "Website", "Marketing", "Invoices", "Ideas", "Travel", "Recipes", "Reading list", "Meeting notes", "Budget 2026", "Hiring", "Taxes", "Home" };
+            var ini = new List<string> { "[settings]", "window=20,20,1000,640,0", "labels=AVADOMS:#B2F2BB;REGISTERED:#FFC9C9", "[tabs]" };
             ini.AddRange(names.Select(n => n + "=" + n));
             ini.Add("[colors]");
             ini.AddRange(names.Select((n, i) => n + "=" + colors[i]));
+            ini.Add("[bookmarks]");
+            ini.Add("Domains=3,7");
             File.WriteAllLines(Path.Combine(notes, "tabs.ini"), ini);
 
             File.WriteAllText(Path.Combine(elsewhere, "Shopping list.txt"), "Shopping list\r\nmilk\r\nbread\r\n");

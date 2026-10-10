@@ -24,8 +24,16 @@ namespace TabbedNotepad
         private readonly ToolStripStatusLabel _positionLabel;
         private readonly ToolStripMenuItem _wordWrapItem;
         private readonly ToolStripMenuItem _multiRowItem;
+        private readonly ToolStripMenuItem _lineNumbersItem;
+        private readonly ToolStripMenuItem _navigatorItem;
+        private readonly ToolStripMenuItem _popupSearchItem;
         private readonly ToolStripMenuItem _saveCopyToNotesItem;
+        private readonly ToolStripStatusLabel _statsLabel;
+        private readonly NavigatorPanel _navigator;
+        private readonly Splitter _navigatorSplitter;
         private readonly Timer _saveTimer;
+        private readonly Timer _infoTimer;   // word count and navigator, a moment after typing
+        private LinkStore _links;
 
         private Font _editorFont = new Font("Consolas", 11f);
         private bool _indexDirty;
@@ -123,6 +131,11 @@ namespace TabbedNotepad
             edit.DropDownItems.Add(new ToolStripSeparator());
             edit.DropDownItems.Add(Item("Select &All", Keys.Control | Keys.A, (s, e) => EditCommand(ed => ed.SelectAll(), box => box.SelectAll())));
             edit.DropDownItems.Add(Item("Time/&Date", Keys.F5, (s, e) => InsertTimeDate()));
+            edit.DropDownItems.Add(Item("Insert Date &Line", Keys.Control | Keys.D, (s, e) => InsertDateLine()));
+            edit.DropDownItems.Add(new ToolStripSeparator());
+            edit.DropDownItems.Add(Item("Toggle &Bookmark", Keys.Control | Keys.F2, (s, e) => ToggleBookmarkAtCursor()));
+            edit.DropDownItems.Add(Item("Next Boo&kmark", Keys.F8, (s, e) => GoToBookmark(+1)));
+            edit.DropDownItems.Add(Item("Previous Bookmar&k", Keys.Shift | Keys.F8, (s, e) => GoToBookmark(-1)));
             edit.DropDownOpening += (s, e) =>
             {
                 undo.Enabled = SearchBoxFocused || CurrentEditor?.CanUndo == true;
@@ -134,15 +147,26 @@ namespace TabbedNotepad
             format.DropDownItems.Add(_wordWrapItem);
             format.DropDownItems.Add(Item("&Font...", Keys.None, (s, e) => ChooseFont()));
             format.DropDownItems.Add(new ToolStripSeparator());
-            _multiRowItem = Item("Tabs in &Multiple Rows", Keys.None, (s, e) => SetMultiRow(!_multiRowItem.Checked));
-            format.DropDownItems.Add(_multiRowItem);
             format.DropDownItems.Add(BuildColorMenu("Tab &Color"));
+
+            var view = new ToolStripMenuItem("&View");
+            _lineNumbersItem = Item("&Line Numbers", Keys.None, (s, e) => SetLineNumbers(!_lineNumbersItem.Checked));
+            _navigatorItem = Item("&Navigator", Keys.F9, (s, e) => SetNavigator(!_navigatorItem.Checked));
+            _multiRowItem = Item("Tabs in &Multiple Rows", Keys.None, (s, e) => SetMultiRow(!_multiRowItem.Checked));
+            _popupSearchItem = Item("Ctrl+F Opens &Pop-up Search", Keys.None, (s, e) => { _popupSearchItem.Checked = !_popupSearchItem.Checked; _indexDirty = true; ScheduleSave(); });
+            view.DropDownItems.AddRange(new ToolStripItem[] { _lineNumbersItem, _navigatorItem, new ToolStripSeparator(), _multiRowItem, _popupSearchItem });
+
+            var tools = new ToolStripMenuItem("&Tools");
+            tools.DropDownItems.Add(Item("&Labels...", Keys.None, (s, e) => ShowLabels()));
+            tools.DropDownItems.Add(Item("&Make Selected Word a Label", Keys.None, (s, e) => AddSelectionAsLabel()));
+            tools.DropDownItems.Add(new ToolStripSeparator());
+            tools.DropDownItems.Add(Item("All &Links...", Keys.Control | Keys.L, (s, e) => ShowLinks()));
 
             var help = new ToolStripMenuItem("&Help");
             help.DropDownItems.Add(Item("&User Guide", Keys.F1, (s, e) => NoteEditor.OpenLink(UserGuideUrl)));
             help.DropDownItems.Add(Item("&Keyboard Shortcuts", Keys.None, (s, e) => ShowHelp()));
 
-            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, help });
+            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, view, tools, help });
             // Right side of the menu bar: search, move-tab arrows and "+ New Tab".
             // Right-aligned items are placed from the right edge inwards, so they're added in reverse.
             var plus = new ToolStripMenuItem("+ New Tab") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "New tab (Ctrl+T)" };
@@ -180,18 +204,31 @@ namespace TabbedNotepad
                 BorderSides = ToolStripStatusLabelBorderSides.Left,
             };
             _folderLabel.Click += (s, e) => ShowNotesFolder(currentFile: true);
+            _statsLabel = new ToolStripStatusLabel { AutoSize = true, BorderSides = ToolStripStatusLabelBorderSides.Left, ToolTipText = "Words and characters in this tab (or in the selection)" };
             _positionLabel = new ToolStripStatusLabel { AutoSize = true, BorderSides = ToolStripStatusLabelBorderSides.Left };
             status.Items.Add(_statusLabel);
             status.Items.Add(_folderLabel);
+            status.Items.Add(_statsLabel);
             status.Items.Add(_positionLabel);
 
+            _navigator = new NavigatorPanel { Visible = false };
+            _navigator.LineSelected += (s, line) => CurrentEditor?.GoToLine(line);
+            _navigator.LabelSearchRequested += (s, word) => SearchAllTabsFor(word);
+            _navigator.CloseClicked += (s, e) => SetNavigator(false);
+            _navigatorSplitter = new Splitter { Dock = DockStyle.Right, Visible = false, BackColor = Color.FromArgb(230, 230, 230) };
+
+            // Docked controls are laid out in reverse order of adding: status bar, menu, navigator, splitter, tabs.
             Controls.Add(_tabs);
+            Controls.Add(_navigatorSplitter);
+            Controls.Add(_navigator);
             Controls.Add(menu);
             Controls.Add(status);
 
             // Save a moment after typing stops, so notes are never lost.
             _saveTimer = new Timer { Interval = 1500 };
             _saveTimer.Tick += (s, e) => { _saveTimer.Stop(); SaveAll(showStatus: false); };
+            _infoTimer = new Timer { Interval = 400 };
+            _infoTimer.Tick += (s, e) => { _infoTimer.Stop(); UpdateInfo(); };
 
             LoadNotes(applyWindowSettings: true);
         }
@@ -285,6 +322,9 @@ namespace TabbedNotepad
             _wordWrapItem.Checked = !settings.TryGetValue("wordwrap", out string wrap) || wrap != "0";
             _multiRowItem.Checked = !settings.TryGetValue("multirow", out string multiRow) || multiRow != "0";
             _tabs.Multiline = _multiRowItem.Checked;
+            _lineNumbersItem.Checked = !settings.TryGetValue("linenumbers", out string lineNumbers) || lineNumbers != "0";
+            _popupSearchItem.Checked = !settings.TryGetValue("popupsearch", out string popup) || popup != "0";
+            NoteLabels.FromSetting(settings.TryGetValue("labels", out string labels) ? labels : "");
             if (applyWindowSettings)
                 RestoreWindowBounds(settings.TryGetValue("window", out string bounds) ? bounds : null);
 
@@ -306,6 +346,7 @@ namespace TabbedNotepad
                     _indexDirty = true;
                 }
                 AddTab(tab);
+                tab.Editor.SetBookmarkLines(note.Bookmarks);
             }
 
             if (_tabs.TabCount == 0)
@@ -322,6 +363,8 @@ namespace TabbedNotepad
 
             _tabs.ResumeLayout();
             _loading = false;
+            OpenLinkStore();
+            SetNavigator(settings.TryGetValue("navigator", out string nav) && nav == "1");
             RenameFilesToTabNames();
             UpdateFolderLabel();
             OnSelectedTabChanged();
@@ -403,15 +446,30 @@ namespace TabbedNotepad
             tab.Editor.ScrollBars = _wordWrapItem.Checked ? RichTextBoxScrollBars.Vertical : RichTextBoxScrollBars.Both;
             tab.Editor.ClearUndo();
             tab.Editor.ContextMenuStrip = _editorMenu;
+            tab.ShowLineNumbers = _lineNumbersItem.Checked;
+            tab.Editor.BookmarksChanged += (s, e) =>
+            {
+                if (_loading) return;
+                _indexDirty = true;
+                ScheduleSave();
+                if (tab == CurrentTab) ScheduleInfo();
+            };
             tab.Editor.TextChanged += (s, e) =>
             {
                 if (_loading) return;
                 tab.Dirty = true;
+                if (tab.Editor.BookmarkLines.Count > 0) _indexDirty = true;   // bookmark line numbers may have moved
                 ScheduleSave();
                 UpdatePosition();
                 OnEditorTextChanged(tab);
+                if (tab == CurrentTab) ScheduleInfo();
             };
-            tab.Editor.SelectionChanged += (s, e) => { if (tab == CurrentTab) UpdatePosition(); };
+            tab.Editor.SelectionChanged += (s, e) =>
+            {
+                if (tab != CurrentTab) return;
+                UpdatePosition();
+                if (tab.Editor.SelectionLength > 0 || _statsLabel.Text.StartsWith("Selected")) ScheduleInfo();
+            };
             tab.LinkCopied += (s, url) => SetStatus("Link copied: " + url);
             UpdateTabToolTip(tab);
 
@@ -452,6 +510,15 @@ namespace TabbedNotepad
                         _store.SaveNote(tab.ToData());
                         tab.Dirty = false;
                     }
+                    _links?.Update(tab.Text, tab.Editor.PlainText, DateTime.Now);
+                }
+                try
+                {
+                    _links?.SaveIfChanged();
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // The links list is a convenience; never let it stop notes from saving.
                 }
 
                 var settings = _store.Settings;
@@ -469,6 +536,10 @@ namespace TabbedNotepad
                     settings["font"] = new FontConverter().ConvertToInvariantString(_editorFont);
                     settings["wordwrap"] = _wordWrapItem.Checked ? "1" : "0";
                     settings["multirow"] = _multiRowItem.Checked ? "1" : "0";
+                    settings["linenumbers"] = _lineNumbersItem.Checked ? "1" : "0";
+                    settings["navigator"] = _navigatorItem.Checked ? "1" : "0";
+                    settings["popupsearch"] = _popupSearchItem.Checked ? "1" : "0";
+                    settings["labels"] = NoteLabels.ToSetting();
                     _store.SaveIndex(AllTabs.Select(t => t.ToData()));
                     _indexDirty = false;
                 }
@@ -687,6 +758,7 @@ namespace TabbedNotepad
         {
             if (_loading) return;
             foreach (var tab in AllTabs) tab.HideCopyButton();
+            UpdateInfo();
             UpdateTitle();
             UpdatePosition();
             UpdateFolderLabel();
@@ -703,8 +775,8 @@ namespace TabbedNotepad
             var editor = CurrentEditor;
             if (editor == null) { _positionLabel.Text = ""; return; }
             int pos = editor.SelectionStart;
-            int line = editor.GetLineFromCharIndex(pos);
-            int col = pos - editor.GetFirstCharIndexFromLine(line);
+            int line = editor.LineFromChar(pos);
+            int col = pos - editor.LineStart(line);
             _positionLabel.Text = "Ln " + (line + 1) + ", Col " + (col + 1);
         }
 
@@ -786,13 +858,51 @@ namespace TabbedNotepad
                     g.DrawRectangle(pen, r.X, r.Y, r.Width - 1, r.Height - 1);
             }
 
+            // While searching, each tab with matches shows their number in a circle at its right.
+            Rectangle textRect = r;
+            if (_tabMatchCounts.Count > 0)
+            {
+                textRect.Width -= BadgeSpace;
+                if (_tabMatchCounts.TryGetValue(tab, out int count))
+                    DrawBadge(g, count, new Rectangle(r.Right - BadgeSpace, r.Y, BadgeSpace - Dpi.Scale(4), r.Height));
+            }
+
             // Tabs opened from a text file elsewhere are shown in italics.
             using (var font = tab.IsExternal ? new Font(_tabs.Font, FontStyle.Italic) : null)
             {
-                TextRenderer.DrawText(g, tab.Text, font ?? _tabs.Font, r, Color.Black,
+                TextRenderer.DrawText(g, tab.Text, font ?? _tabs.Font, textRect, Color.Black,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
                     TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             }
+        }
+
+        private void DrawBadge(Graphics g, int count, Rectangle area)
+        {
+            string text = count > 99 ? "99+" : count.ToString();
+            using (var font = new Font(_tabs.Font.FontFamily, _tabs.Font.Size * 0.8f, FontStyle.Bold))
+            {
+                Size textSize = TextRenderer.MeasureText(text, font, Size.Empty, TextFormatFlags.NoPadding);
+                int height = Math.Min(area.Height - Dpi.Scale(6), textSize.Height + Dpi.Scale(4));
+                int width = Math.Max(height, textSize.Width + Dpi.Scale(8));
+                var circle = new Rectangle(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (var fill = new SolidBrush(Color.FromArgb(230, 120, 0)))
+                using (var path = RoundedRect(circle, height / 2))
+                    g.FillPath(fill, path);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.Default;
+                TextRenderer.DrawText(g, text, font, circle, Color.White,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            }
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath RoundedRect(Rectangle r, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            int d = Math.Max(1, radius * 2);
+            path.AddArc(r.X, r.Y, d, d, 90, 180);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 180);
+            path.CloseFigure();
+            return path;
         }
 
         private NoteTab TabAt(Point location)
@@ -933,14 +1043,20 @@ namespace TabbedNotepad
                 "  Ctrl+W\tClose tab (or middle-click the tab)\n" +
                 "  Ctrl+Tab\tNext tab  (Ctrl+Shift+Tab: previous)\n" +
                 "  Ctrl+1..9\tJump to tab 1..9\n" +
-                "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the arrow buttons)\n" +
-                "  Right-click a tab for its color and more\n\n" +
+                "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the arrow buttons)\n\n" +
                 "Editing\n" +
                 "  Ctrl+Z / Ctrl+Y\tUndo / Redo\n" +
                 "  F5\tInsert time and date\n" +
+                "  Ctrl+D\tInsert a date line (------2026-10-10)\n" +
                 "  Click a link to open it; hover it for a copy button\n\n" +
+                "Organizing\n" +
+                "  Click a line number, or Ctrl+F2\tBookmark a line\n" +
+                "  F8 / Shift+F8\tNext / previous bookmark\n" +
+                "  F9\tNavigator: dates, bookmarks, labels, links\n" +
+                "  Tools > Labels\tWords like AVADOMS, highlighted in color\n" +
+                "  Ctrl+L\tAll links ever written in your notes\n\n" +
                 "Searching\n" +
-                "  Ctrl+F\tSearch box (this tab or all tabs)\n" +
+                "  Ctrl+F\tSearch (pop-up box; tabs with matches show a count)\n" +
                 "  Ctrl+Shift+F\tFind dialog (with Select All)\n" +
                 "  F3 / Shift+F3\tNext / previous match\n\n" +
                 "Files\n" +
