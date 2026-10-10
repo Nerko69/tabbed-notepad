@@ -68,8 +68,12 @@ namespace TabbedNotepad.Screenshots
             return _failures;
         }
 
+        private static bool Skip(int scene) =>
+            ("," + Environment.GetEnvironmentVariable("TN_SKIP") + ",").Contains("," + scene + ",");
+
         private static void RunScenes(MainForm form, string notes, string elsewhere)
         {
+            if (Skip(0)) return;
             var tabs = Get<TabControl>(form, "_tabs");
             tabs.SelectedIndex = 0;
             var alpha = (NoteTab)tabs.SelectedTab;
@@ -302,6 +306,7 @@ namespace TabbedNotepad.Screenshots
             Pump(300);
 
             // 12. Quick tab switcher (Ctrl+P).
+            if (!Skip(12)) {
             Check(QuickSwitcher.Score("prjal", "Project Alpha", null) > 0, "switcher finds letters in order");
             Check(QuickSwitcher.Score("cc2", "Client B", "CC247") > 0, "switcher matches categories");
             Check(QuickSwitcher.Score("xyz", "Client B", "CC247") == 0, "switcher skips non-matches");
@@ -317,8 +322,10 @@ namespace TabbedNotepad.Screenshots
             switcher.DialogResult = DialogResult.Cancel;
             switcher.Close();
             Pump(200);
+            }
 
             // 13. Daily backup: made in the background when the app starts.
+            if (!Skip(13)) {
             string backups = Path.Combine(notes, "Backups");
             string daily = Path.Combine(backups, Backup.DailyFileName(DateTime.Now));
             for (int i = 0; i < 50 && !File.Exists(daily); i++) Pump(100);
@@ -339,6 +346,7 @@ namespace TabbedNotepad.Screenshots
             File.WriteAllText(Path.Combine(backups, "TabbedNotepad-2020-01-01-0930.zip"), "old");
             int removed = Backup.Prune(backups, Backup.KeepDays, DateTime.Now);
             Check(removed == 2 && File.Exists(daily) && File.Exists(manual), "backups older than " + Backup.KeepDays + " days removed: " + removed);
+            }
 
             // 14. One row of tabs instead (View > Tabs in Multiple Rows off).
             Call(form, "SetMultiRow", false);
