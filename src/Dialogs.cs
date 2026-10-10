@@ -308,4 +308,198 @@ namespace TabbedNotepad
             base.Dispose(disposing);
         }
     }
+
+    /// <summary>New Tab: the tab's name and, optionally, its category.</summary>
+    internal sealed class NewTabDialog : Form
+    {
+        private readonly TextBox _name;
+        private readonly ComboBox _category;
+        private const string NoCategory = "(no category)";
+
+        public string TabName => _name.Text.Trim();
+        public string Category => _category.SelectedIndex <= 0 ? null : (string)_category.SelectedItem;
+
+        public NewTabDialog(string suggestedName, string category)
+        {
+            Text = "New Tab";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MinimizeBox = false;
+            MaximizeBox = false;
+            ShowInTaskbar = false;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            Font = SystemFonts.MessageBoxFont;
+            Padding = new Padding(10);
+
+            var layout = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Dock = DockStyle.Fill };
+            _name = new TextBox { Text = suggestedName, Width = Dpi.Scale(300), MaxLength = 100 };
+            _category = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = Dpi.Scale(300) };
+            _category.Items.Add(NoCategory);
+            foreach (string c in TabCategories.Items) _category.Items.Add(c);
+            int index = category == null ? 0 : _category.Items.IndexOf(category);
+            _category.SelectedIndex = Math.Max(0, index);
+
+            layout.Controls.Add(new Label { Text = "Name (for example a project name):", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+            layout.SetColumnSpan(layout.GetControlFromPosition(0, 0), 2);
+            layout.Controls.Add(_name, 0, 1);
+            layout.SetColumnSpan(_name, 2);
+            layout.Controls.Add(new Label { Text = "Category:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 10, 3, 3) }, 0, 2);
+            layout.SetColumnSpan(layout.GetControlFromPosition(0, 2), 2);
+            layout.Controls.Add(_category, 0, 3);
+            layout.SetColumnSpan(_category, 2);
+
+            var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0) };
+            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+            var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
+            buttons.Controls.Add(cancel);
+            buttons.Controls.Add(ok);
+            layout.Controls.Add(buttons, 0, 4);
+            layout.SetColumnSpan(buttons, 2);
+            Controls.Add(layout);
+
+            AcceptButton = ok;
+            CancelButton = cancel;
+            Shown += (s, e) => { _name.SelectAll(); _name.Focus(); };
+        }
+    }
+
+    /// <summary>Tools > Categories: add, rename, remove and order the tab categories.</summary>
+    internal sealed class CategoriesDialog : Form
+    {
+        private readonly ListBox _list;
+
+        public List<string> Categories => _list.Items.Cast<string>().ToList();
+
+        /// <summary>Renames done in the dialog (old name to new name), so tabs can follow.</summary>
+        public Dictionary<string, string> Renamed { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        public CategoriesDialog(IEnumerable<string> categories, Func<string, int> tabsIn)
+        {
+            Text = "Tab Categories";
+            Font = SystemFonts.MessageBoxFont;
+            Size = new Size(Dpi.Scale(420), Dpi.Scale(400));
+            StartPosition = FormStartPosition.CenterParent;
+            ShowInTaskbar = false;
+            MinimizeBox = false;
+            MaximizeBox = false;
+
+            var intro = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = Dpi.Scale(52),
+                Padding = new Padding(Dpi.Scale(8), Dpi.Scale(8), Dpi.Scale(8), 0),
+                Text = "Give each tab a category (right-click a tab > Category), then use the Category menu to show only the tabs of one category.",
+            };
+            _list = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false };
+            foreach (string c in categories) _list.Items.Add(c);
+
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, FlowDirection = FlowDirection.TopDown, Padding = new Padding(Dpi.Scale(6)) };
+            Button B(string text) => new Button { Text = text, Width = Dpi.Scale(100) };
+            var add = B("Add...");
+            var rename = B("Rename...");
+            var remove = B("Remove");
+            var up = B("Move Up");
+            var down = B("Move Down");
+            var ok = B("OK");
+            ok.DialogResult = DialogResult.OK;
+            ok.Margin = new Padding(3, Dpi.Scale(20), 3, 3);
+            var cancel = B("Cancel");
+            cancel.DialogResult = DialogResult.Cancel;
+            buttons.Controls.AddRange(new Control[] { add, rename, remove, up, down, ok, cancel });
+
+            Controls.Add(_list);
+            Controls.Add(buttons);
+            Controls.Add(intro);
+            AcceptButton = ok;
+            CancelButton = cancel;
+
+            add.Click += (s, e) =>
+            {
+                string name = Clean(InputDialog.Ask(this, "Add Category", "Category name:", ""));
+                if (name == null || Contains(name)) return;
+                _list.Items.Add(name);
+                _list.SelectedItem = name;
+            };
+            rename.Click += (s, e) =>
+            {
+                if (!(_list.SelectedItem is string old)) return;
+                string name = Clean(InputDialog.Ask(this, "Rename Category", "New name for this category:", old));
+                if (name == null || name == old || (Contains(name) && !string.Equals(name, old, StringComparison.OrdinalIgnoreCase))) return;
+                int i = _list.SelectedIndex;
+                _list.Items[i] = name;
+                // Remember the original name, also across several renames.
+                string original = Renamed.FirstOrDefault(r => r.Value == old).Key ?? old;
+                Renamed[original] = name;
+            };
+            remove.Click += (s, e) =>
+            {
+                if (!(_list.SelectedItem is string name)) return;
+                int count = tabsIn(Renamed.FirstOrDefault(r => r.Value == name).Key ?? name);
+                if (count > 0 && MessageBox.Show(this, count + (count == 1 ? " tab is" : " tabs are") + " in \"" + name + "\". They will have no category.\n\nRemove the category?",
+                        Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                _list.Items.Remove(name);
+            };
+            up.Click += (s, e) => MoveSelected(-1);
+            down.Click += (s, e) => MoveSelected(+1);
+        }
+
+        private bool Contains(string name) => _list.Items.Cast<string>().Any(c => string.Equals(c, name, StringComparison.OrdinalIgnoreCase));
+
+        private static string Clean(string name)
+        {
+            name = (name ?? "").Replace(";", "").Trim();
+            return name.Length == 0 ? null : name;
+        }
+
+        private void MoveSelected(int delta)
+        {
+            int i = _list.SelectedIndex;
+            int j = i + delta;
+            if (i < 0 || j < 0 || j >= _list.Items.Count) return;
+            object item = _list.Items[i];
+            _list.Items.RemoveAt(i);
+            _list.Items.Insert(j, item);
+            _list.SelectedIndex = j;
+        }
+    }
+
+    /// <summary>Help > About.</summary>
+    internal sealed class AboutDialog : Form
+    {
+        public AboutDialog()
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            string Attr<T>(Func<T, string> get) where T : Attribute =>
+                assembly.GetCustomAttributes(typeof(T), false).OfType<T>().Select(get).FirstOrDefault() ?? "";
+
+            Text = "About Tabbed Notepad";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterParent;
+            MinimizeBox = false;
+            MaximizeBox = false;
+            ShowInTaskbar = false;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            Font = SystemFonts.MessageBoxFont;
+            Padding = new Padding(Dpi.Scale(16));
+
+            var layout = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Dock = DockStyle.Fill };
+            var icon = new PictureBox { Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath)?.ToBitmap(), SizeMode = PictureBoxSizeMode.AutoSize, Margin = new Padding(0, 0, Dpi.Scale(14), 0) };
+            var text = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown };
+            text.Controls.Add(new Label { Text = Attr<System.Reflection.AssemblyProductAttribute>(a => a.Product), AutoSize = true, Font = new Font(Font.FontFamily, Font.Size * 1.3f, FontStyle.Bold) });
+            text.Controls.Add(new Label { Text = "Version " + Attr<System.Reflection.AssemblyFileVersionAttribute>(a => a.Version), AutoSize = true });
+            text.Controls.Add(new Label { Text = Attr<System.Reflection.AssemblyTitleAttribute>(a => a.Title), AutoSize = true, Margin = new Padding(3, Dpi.Scale(10), 3, 3) });
+            text.Controls.Add(new Label { Text = "Idea and product design: WebProgress.AI", AutoSize = true });
+            text.Controls.Add(new Label { Text = Attr<System.Reflection.AssemblyCopyrightAttribute>(a => a.Copyright), AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(3, Dpi.Scale(10), 3, 3) });
+            var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, Anchor = AnchorStyles.Right, Margin = new Padding(3, Dpi.Scale(14), 3, 3) };
+
+            layout.Controls.Add(icon, 0, 0);
+            layout.Controls.Add(text, 1, 0);
+            layout.Controls.Add(ok, 1, 1);
+            Controls.Add(layout);
+            AcceptButton = ok;
+            CancelButton = ok;
+        }
+    }
 }

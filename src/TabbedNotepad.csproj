@@ -9,10 +9,15 @@
     <RootNamespace>TabbedNotepad</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.3.0</Version>
-    <Product>Tabbed Notepad</Product>
-    <Description>A simple notepad with named tabs that saves automatically.</Description>
-    <Copyright>MIT License</Copyright>
+    <!-- Shown in Windows Explorer: right-click TabbedNotepad.exe > Properties > Details. -->
+    <Version>1.4.0</Version>
+    <FileVersion>1.4.0.0</FileVersion>
+    <AssemblyTitle>Tabbed Notepad for better productivity</AssemblyTitle>
+    <Product>Tabbed Notepad application by WebProgress.AI</Product>
+    <Company>WebProgress.AI</Company>
+    <Description>Tabbed Notepad for better productivity. Idea and product design: WebProgress.AI</Description>
+    <Copyright>© 2026 WebProgress.AI</Copyright>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <GenerateAppConfigFile>false</GenerateAppConfigFile>
     <DebugType>none</DebugType>
   </PropertyGroup>

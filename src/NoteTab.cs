@@ -32,6 +32,9 @@ namespace TabbedNotepad
         public DateTime FileTimestampUtc { get; set; }
         public bool IsExternal => ExternalPath != null;
 
+        /// <summary>The tab's category (e.g. CC247), or null.</summary>
+        public string Category { get; set; }
+
         /// <summary>Raised after a link was copied with the copy icon.</summary>
         public event EventHandler<string> LinkCopied;
 
@@ -109,6 +112,7 @@ namespace TabbedNotepad
             FileEncoding = FileEncoding,
             FileTimestampUtc = FileTimestampUtc,
             Bookmarks = Editor.BookmarkLines,
+            Category = Category,
         };
 
         private void UpdateCopyButton(Point mouse)
@@ -165,6 +169,29 @@ namespace TabbedNotepad
                 _toolTip.Dispose();
             }
             base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>The user's tab categories (e.g. CC247, OrgSys), in the order they manage them.</summary>
+    internal static class TabCategories
+    {
+        public static readonly string[] Defaults = { "CC247", "OrgSys", "WP Plugin", "GHL", "Windows", "Linux", "Mobile App", "Course" };
+
+        private static List<string> _items = new List<string>(Defaults);
+
+        public static IReadOnlyList<string> Items => _items;
+
+        public static void Set(IEnumerable<string> names) =>
+            _items = names.Select(n => (n ?? "").Replace(";", "").Trim()).Where(n => n.Length > 0)
+                          .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        public static string ToSetting() => string.Join(";", _items);
+
+        /// <summary>Loads the saved list; the first time (nothing saved yet) the default categories are used.</summary>
+        public static void FromSetting(string text)
+        {
+            if (text == null) Set(Defaults);
+            else Set(text.Split(';'));
         }
     }
 

@@ -25,6 +25,8 @@ No installation needed. It runs on Windows 10 and 11, which already include .NET
 ## Features
 
 - **Tabs:** name, color, drag or ◄ ► to reorder. Tabs wrap onto more rows when there are many.
+- **Categories** (CC247, OrgSys, WP Plugin, …): show only one category's tabs. Right-click a tab
+  to copy its file path. New tabs start with their date/time and file path.
 - **Search** (Ctrl+F pops up a search box): every match is highlighted, and each tab shows how
   many matches it has in a small circle. Marks beside the scroll bar show where they are. The
   **Find** dialog adds *Match case* and *Select All*.
@@ -55,6 +57,11 @@ Explorer. By default it is `Documents\TabbedNotepad`.
 
 To back up your notes, copy the notes folder. Only one copy of the app runs at a time;
 starting it again brings the open window to the front.
+
+## About
+
+Tabbed Notepad application by **WebProgress.AI**: idea and product design by WebProgress.AI.
+See **Help → About** in the app, or the file's Properties → Details in Windows Explorer.
 
 ## Building from source
 
