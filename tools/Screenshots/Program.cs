@@ -80,6 +80,7 @@ namespace TabbedNotepad.Screenshots
             alpha.Editor.Select(0, 0);
             Pump(500);
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "1") return;
             // 1. Colored tabs in several rows.
             Check(tabs.TabCount >= 12, "demo tabs loaded (" + tabs.TabCount + ")");
             Check(tabs.Multiline, "tabs in multiple rows by default");
@@ -87,6 +88,7 @@ namespace TabbedNotepad.Screenshots
             Check(tabs.TabPages.Cast<NoteTab>().All(t => !t.TabColor.IsEmpty && t.TabColor != SystemColors.Control), "every tab has a color");
             Shot(form, "01-main.png");
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "2") return;
             // 2. Undo really works (it used to be wiped by pasting), including for paste and time/date.
             var editor = alpha.Editor;
             string before = editor.PlainText;
@@ -107,6 +109,7 @@ namespace TabbedNotepad.Screenshots
                 Check(editor.PlainText == before, "Undo after Redo");
             }
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "3") return;
             // 3. Pop-up search (Ctrl+F): "This tab" by default, a count circle on every tab with
             //    matches, markers next to the scroll bar, Enter jumps to the next match.
             var searchBox = Get<ToolStripTextBox>(form, "_searchBox");
@@ -134,6 +137,7 @@ namespace TabbedNotepad.Screenshots
             Call(form, "CloseFindPopup");
             Check(searchBox.Text == "" && badges.Count == 0, "closing the pop-up clears the search");
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "4") return;
             // 4. Find dialog with Select All.
             tabs.SelectedIndex = 0;
             Pump(200);
@@ -149,6 +153,7 @@ namespace TabbedNotepad.Screenshots
             find.Hide();
             Pump(200);
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "5") return;
             // 5. Links: hovering shows a copy icon at the end of the link.
             tabs.SelectedIndex = 0;
             alpha.Editor.Select(0, 0);
@@ -168,6 +173,7 @@ namespace TabbedNotepad.Screenshots
                 copyButton.Visible = false;
             }
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "6") return;
             // 6. Tab right-click menu with colors.
             var tabMenu = Get<ContextMenuStrip>(form, "_tabMenu");
             Rectangle tabRect = tabs.GetTabRect(tabs.SelectedIndex);
@@ -180,6 +186,7 @@ namespace TabbedNotepad.Screenshots
             tabMenu.Close();
             Pump(200);
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "7") return;
             // 7. File menu: Open Text File, Open Folder, Save All Tabs As...
             var fileMenu = (ToolStripMenuItem)form.MainMenuStrip.Items[0];
             fileMenu.ShowDropDown();
@@ -188,6 +195,7 @@ namespace TabbedNotepad.Screenshots
             fileMenu.HideDropDown();
             Pump(200);
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "8") return;
             // 8. A text file opened from another folder: saved back where it came from.
             string shopping = Path.Combine(elsewhere, "Shopping list.txt");
             Call(form, "OpenTextFile", shopping);
@@ -202,12 +210,14 @@ namespace TabbedNotepad.Screenshots
             Pump(300);
             Shot(form, "07-text-file-tab.png");
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "9") return;
             // 9. Everything comes back after a restart.
             var reloaded = new NoteStore(notes).Load();
             Check(reloaded.Count == tabs.TabCount, "all tabs saved (" + reloaded.Count + " of " + tabs.TabCount + ")");
             Check(reloaded.All(n => n.Color.HasValue), "tab colors saved");
             Check(reloaded.Any(n => n.ExternalPath != null), "opened text file remembered");
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "10") return;
             // 10. Organizing: date lines, labels, bookmarks, navigator, word count, links.
             tabs.SelectedIndex = 1;
             Pump(300);
@@ -273,6 +283,7 @@ namespace TabbedNotepad.Screenshots
             Call(form, "SetNavigator", false);
             Pump(200);
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "11") return;
             // 11. New tabs start with the date/time and their file path; Copy File Path; categories.
             var newTab = (NoteTab)Call(form, "CreateTab", "Course ideas", "Course");
             string[] header = newTab.Editor.PlainText.Split('\n');
@@ -305,6 +316,7 @@ namespace TabbedNotepad.Screenshots
             tabs.SelectedIndex = 0;
             Pump(300);
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "12") return;
             // 12. Quick tab switcher (Ctrl+P).
             if (!Skip(12)) {
             Check(QuickSwitcher.Score("prjal", "Project Alpha", null) > 0, "switcher finds letters in order");
@@ -324,6 +336,7 @@ namespace TabbedNotepad.Screenshots
             Pump(200);
             }
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "13") return;
             // 13. Daily backup: made in the background when the app starts.
             if (!Skip(13)) {
             string backups = Path.Combine(notes, "Backups");
@@ -348,6 +361,7 @@ namespace TabbedNotepad.Screenshots
             Check(removed == 2 && File.Exists(daily) && File.Exists(manual), "backups older than " + Backup.KeepDays + " days removed: " + removed);
             }
 
+            if (Environment.GetEnvironmentVariable("TN_STOP") == "14") return;
             // 14. One row of tabs instead (View > Tabs in Multiple Rows off).
             Call(form, "SetMultiRow", false);
             tabs.SelectedIndex = 0;

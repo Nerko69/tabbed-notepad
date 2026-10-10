@@ -44,10 +44,10 @@ jobs:
       - name: Exit crash bisect (temporary)
         if: always()
         run: |
-          foreach ($skip in @("0", "12", "13", "12,13")) {
-            $env:TN_SKIP = $skip
+          foreach ($stop in @("2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")) {
+            $env:TN_STOP = $stop
             tools/Screenshots/bin/Release/net48/Screenshots.exe bisect | Select-String "Exit code|UNHANDLED|UNOBSERVED|failed"
-            Write-Host "TN_SKIP=$skip -> exit code $LASTEXITCODE"
+            Write-Host "TN_STOP=$stop -> exit code $LASTEXITCODE"
           }
           exit 0
 
