@@ -44,6 +44,7 @@ At the bottom, the **status bar** shows:
 | Add a tab | Click **+ New Tab** or press **Ctrl+T**, then type a name (e.g. a project name) |
 | Rename a tab | Double-click it, or press **F2** |
 | Switch tabs | Click a tab, **Ctrl+Tab** / **Ctrl+Shift+Tab**, or **Ctrl+1 … Ctrl+9** |
+| Go to a tab by name | **Ctrl+P**, type part of its name, Enter (see below) |
 | Move a tab | Drag it, or use the **◄ ►** buttons (**Ctrl+Shift+Page Up / Page Down**) |
 | Change a tab's color | Right-click the tab → **Tab Color** |
 | Put a tab in a category | Right-click the tab → **Category** (or choose one when you create the tab) |
@@ -55,6 +56,14 @@ right-click the tab → **Tab Color**. Pick a color, **Random Color**, or **Cust
 color you like. The same menu is under **Format → Tab Color**.
 
 ![Right-click a tab to rename it, change its color or category, copy its file path, move it or close it](images/05-tab-color.png)
+
+**Quick tab switcher (Ctrl+P).** Press **Ctrl+P** (or **View → Go to Tab…**) and type part of a
+tab's name or its category. The best matches come first: `cli` finds *Client B*, and letters in order
+work too (`prjal` finds *Project Alpha*). Use **↑ ↓** to choose and **Enter** to go there; it also
+finds tabs hidden by the Category filter. With nothing typed, the list starts with your most recently
+used tabs, so **Ctrl+P, Enter** jumps back to the previous tab.
+
+![Ctrl+P: type part of a tab's name and press Enter](images/13-quick-switcher.png)
 
 **Categories.** Group your tabs into categories such as CC247, OrgSys, WP Plugin, GHL, Windows,
 Linux, Mobile App or Course. Use the **Category** menu on the menu bar to **show only the tabs of
@@ -211,6 +220,25 @@ version to keep.
 
 ![A text file opened from another folder: its tab is in italics and the status bar shows where it is saved](images/07-text-file-tab.png)
 
+## Backups
+
+Once a day, Tabbed Notepad saves a **zip backup of all your notes** in the `Backups` folder inside
+your notes folder, named like `TabbedNotepad-2026-10-10.zip`. Backups older than 30 days are deleted.
+The zip contains every tab's `.txt` file, `tabs.ini`, the links list, the `Closed tabs` folder, and
+any text files you opened from elsewhere (under `Other files`). It runs in the background and
+doesn't interrupt your typing; if the app stays open past midnight, the next day's backup is made too.
+
+**Tools → Backups** has:
+
+- **Back Up Now:** an extra backup right away (named with the time, e.g. `TabbedNotepad-2026-10-10-1530.zip`).
+- **Open Backups Folder.**
+- **Daily Backup:** turn the daily backup on or off.
+- **Choose Backup Folder…:** a backup on the same disk doesn't help if the disk fails, so choosing a
+  folder in OneDrive, on another drive or on a USB stick is safer.
+- The date and time of the last backup.
+
+To get a note back, open the zip in Explorer and copy the `.txt` file you need.
+
 ## Keyboard shortcuts
 
 | Keys | Action |
@@ -227,6 +255,7 @@ version to keep.
 | Click a line number / Ctrl+F2 | Bookmark a line |
 | F8 / Shift+F8 | Next / previous bookmark |
 | F9 | Navigator |
+| Ctrl+P | Go to a tab by name |
 | Ctrl+L | All links |
 | Ctrl+F | Search (pop-up box) |
 | Ctrl+Shift+F | Find dialog |

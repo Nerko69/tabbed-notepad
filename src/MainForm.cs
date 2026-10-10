@@ -163,6 +163,8 @@ namespace TabbedNotepad
             _navigatorItem = Item("&Navigator", Keys.F9, (s, e) => SetNavigator(!_navigatorItem.Checked));
             _multiRowItem = Item("Tabs in &Multiple Rows", Keys.None, (s, e) => SetMultiRow(!_multiRowItem.Checked));
             _popupSearchItem = Item("Ctrl+F Opens &Pop-up Search", Keys.None, (s, e) => { _popupSearchItem.Checked = !_popupSearchItem.Checked; _indexDirty = true; ScheduleSave(); });
+            view.DropDownItems.Add(Item("&Go to Tab...", Keys.Control | Keys.P, (s, e) => ShowQuickSwitcher()));
+            view.DropDownItems.Add(new ToolStripSeparator());
             view.DropDownItems.AddRange(new ToolStripItem[] { _lineNumbersItem, _navigatorItem, new ToolStripSeparator(), _multiRowItem, _popupSearchItem });
 
             var tools = new ToolStripMenuItem("&Tools");
@@ -172,6 +174,8 @@ namespace TabbedNotepad
             tools.DropDownItems.Add(Item("&Make Selected Word a Label", Keys.None, (s, e) => AddSelectionAsLabel()));
             tools.DropDownItems.Add(new ToolStripSeparator());
             tools.DropDownItems.Add(Item("All &Links...", Keys.Control | Keys.L, (s, e) => ShowLinks()));
+            tools.DropDownItems.Add(new ToolStripSeparator());
+            tools.DropDownItems.Add(BuildBackupMenu());
 
             var help = new ToolStripMenuItem("&Help");
             help.DropDownItems.Add(Item("&User Guide", Keys.F1, (s, e) => NoteEditor.OpenLink(UserGuideUrl)));
@@ -242,7 +246,7 @@ namespace TabbedNotepad
 
             // Save a moment after typing stops, so notes are never lost.
             _saveTimer = new Timer { Interval = 1500 };
-            _saveTimer.Tick += (s, e) => { _saveTimer.Stop(); SaveAll(showStatus: false); };
+            _saveTimer.Tick += (s, e) => { _saveTimer.Stop(); SaveAll(showStatus: false); StartDailyBackupIfDue(); };
             _infoTimer = new Timer { Interval = 400 };
             _infoTimer.Tick += (s, e) => { _infoTimer.Stop(); UpdateInfo(); };
 
@@ -347,6 +351,8 @@ namespace TabbedNotepad
             _popupSearchItem.Checked = !settings.TryGetValue("popupsearch", out string popup) || popup != "0";
             NoteLabels.FromSetting(settings.TryGetValue("labels", out string labels) ? labels : "");
             TabCategories.FromSetting(settings.TryGetValue("categories", out string categories) ? categories : null);
+            _dailyBackupItem.Checked = !settings.TryGetValue("backup", out string backup) || backup != "0";
+            _backupFolderSetting = settings.TryGetValue("backupfolder", out string backupFolder) && backupFolder.Length > 0 ? backupFolder : null;
             _categoryFilter = settings.TryGetValue("categoryfilter", out string filter) && filter.Length > 0 ? filter : null;
             if (_categoryFilter != null && _categoryFilter != NoCategoryFilter && !TabCategories.Items.Contains(_categoryFilter)) _categoryFilter = null;
             if (applyWindowSettings)
@@ -577,6 +583,8 @@ namespace TabbedNotepad
                     settings["popupsearch"] = _popupSearchItem.Checked ? "1" : "0";
                     settings["labels"] = NoteLabels.ToSetting();
                     settings["categories"] = TabCategories.ToSetting();
+                    settings["backup"] = _dailyBackupItem.Checked ? "1" : "0";
+                    settings["backupfolder"] = _backupFolderSetting ?? "";
                     settings["categoryfilter"] = _categoryFilter ?? "";
                     _store.SaveIndex(AllTabs.Select(t => t.ToData()));
                     _indexDirty = false;
@@ -838,6 +846,7 @@ namespace TabbedNotepad
         {
             if (_loading) return;
             foreach (var tab in AllTabs) tab.HideCopyButton();
+            RememberRecentTab(CurrentTab);
             UpdateInfo();
             UpdateTitle();
             UpdatePosition();
@@ -1125,7 +1134,8 @@ namespace TabbedNotepad
                 "  Ctrl+1..9\tJump to tab 1..9\n" +
                 "  Ctrl+Shift+PgUp/PgDn\tMove tab left/right (or the arrow buttons)\n" +
                 "  Right-click a tab\tColor, category, copy file path, show in folder\n" +
-                "  Category menu\tShow only the tabs of one category\n\n" +
+                "  Category menu\tShow only the tabs of one category\n" +
+                "  Ctrl+P\tGo to a tab by typing part of its name\n\n" +
                 "Editing\n" +
                 "  Ctrl+Z / Ctrl+Y\tUndo / Redo\n" +
                 "  F5\tInsert time and date\n" +
@@ -1145,7 +1155,8 @@ namespace TabbedNotepad
                 "  Ctrl+O\tOpen a text file in a tab\n" +
                 "  Ctrl+Shift+O\tOpen a notes folder\n" +
                 "  Ctrl+S\tSave (saving is automatic anyway)\n" +
-                "  Ctrl+Shift+S\tSave all tabs as... (pick a folder)\n\n" +
+                "  Ctrl+Shift+S\tSave all tabs as... (pick a folder)\n" +
+                "  Tools > Backups\tDaily zip backup of all notes (last 30 days)\n\n" +
                 "Your notes are saved automatically, one .txt file per tab, in:\n" + _store.Folder,
                 "Keyboard Shortcuts - " + AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -1224,6 +1235,7 @@ namespace TabbedNotepad
         {
             base.OnShown(e);
             CurrentEditor?.Focus();
+            StartDailyBackupIfDue();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
