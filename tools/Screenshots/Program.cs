@@ -40,26 +40,31 @@ namespace TabbedNotepad.Screenshots
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.ThreadException += (s, e) => Fail("Unhandled exception: " + e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => Console.WriteLine("UNHANDLED (background thread): " + e.ExceptionObject);
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) => Console.WriteLine("UNOBSERVED TASK: " + e.Exception);
 
             // Keep the mouse pointer away from the window so it doesn't hover over anything.
             Cursor.Position = new Point(SystemInformation.VirtualScreen.Right - 5, SystemInformation.VirtualScreen.Bottom - 5);
             var form = new MainForm(new NoteStore(notes));
-            form.Show();
-            Pump(1500);
-
-            try
+            // Run the checks inside Application.Run, so the app starts and exits exactly as it does for
+            // a user: a crash while shutting down then fails this program too.
+            form.Shown += (s, e) => form.BeginInvoke((Action)(() =>
             {
-                RunScenes(form, notes, elsewhere);
-            }
-            catch (Exception ex)
-            {
-                Fail("Scene crashed: " + ex);
-                Shot(form, "zz-crash.png");
-            }
-
-            form.Close();
-            Pump(300);
+                Pump(1500);
+                try
+                {
+                    RunScenes(form, notes, elsewhere);
+                }
+                catch (Exception ex)
+                {
+                    Fail("Scene crashed: " + ex);
+                    Shot(form, "zz-crash.png");
+                }
+                form.Close();
+            }));
+            Application.Run(form);
             Console.WriteLine(_failures == 0 ? "All checks passed." : _failures + " check(s) failed.");
+            Console.WriteLine("Exit code: " + _failures);
             return _failures;
         }
 
@@ -296,7 +301,46 @@ namespace TabbedNotepad.Screenshots
             tabs.SelectedIndex = 0;
             Pump(300);
 
-            // 12. One row of tabs instead (View > Tabs in Multiple Rows off).
+            // 12. Quick tab switcher (Ctrl+P).
+            Check(QuickSwitcher.Score("prjal", "Project Alpha", null) > 0, "switcher finds letters in order");
+            Check(QuickSwitcher.Score("cc2", "Client B", "CC247") > 0, "switcher matches categories");
+            Check(QuickSwitcher.Score("xyz", "Client B", "CC247") == 0, "switcher skips non-matches");
+            var recent = (List<NoteTab>)Call(form, "TabsByRecentUse");
+            Check(recent.Count == tabs.TabCount && recent[0] == tabs.SelectedTab, "recently used tabs first");
+            var switcher = new QuickSwitcher(recent);
+            switcher.Query = "cli";
+            Check(switcher.Results.Count > 0 && switcher.Results[0].Text == "Client B", "switcher: \"cli\" finds Client B first: " + string.Join(", ", switcher.Results.Select(t => t.Text)));
+            switcher.Location = new Point(form.Left + (form.Width - switcher.Width) / 2, form.Top + 110);
+            switcher.Show(form);
+            Pump(500);
+            ShotUnion("13-quick-switcher.png", form.Bounds, switcher.Bounds);
+            switcher.DialogResult = DialogResult.Cancel;
+            switcher.Close();
+            Pump(200);
+
+            // 13. Daily backup: made in the background when the app starts.
+            string backups = Path.Combine(notes, "Backups");
+            string daily = Path.Combine(backups, Backup.DailyFileName(DateTime.Now));
+            for (int i = 0; i < 50 && !File.Exists(daily); i++) Pump(100);
+            Check(File.Exists(daily), "daily backup made at start: " + daily);
+            if (File.Exists(daily))
+            {
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(daily))
+                {
+                    var names = zip.Entries.Select(en => en.FullName).ToList();
+                    Check(names.Contains("Project Alpha.txt") && names.Contains("tabs.ini") && !names.Any(n => n.StartsWith("Backups/")),
+                        "backup holds the notes (" + names.Count + " files)");
+                }
+            }
+            string manual = Backup.Create(notes, backups, new[] { shopping }, DateTime.Now, timestamped: true);
+            using (var zip = System.IO.Compression.ZipFile.OpenRead(manual))
+                Check(zip.Entries.Any(en => en.FullName == "Other files/Shopping list.txt"), "backup includes text files opened from elsewhere");
+            File.WriteAllText(Path.Combine(backups, "TabbedNotepad-2020-01-01.zip"), "old");
+            File.WriteAllText(Path.Combine(backups, "TabbedNotepad-2020-01-01-0930.zip"), "old");
+            int removed = Backup.Prune(backups, Backup.KeepDays, DateTime.Now);
+            Check(removed == 2 && File.Exists(daily) && File.Exists(manual), "backups older than " + Backup.KeepDays + " days removed: " + removed);
+
+            // 14. One row of tabs instead (View > Tabs in Multiple Rows off).
             Call(form, "SetMultiRow", false);
             tabs.SelectedIndex = 0;
             Pump(500);

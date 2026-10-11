@@ -15,6 +15,7 @@ namespace TabbedNotepad
         private readonly TreeView _tree;
         private readonly Label _title;
         private readonly HashSet<string> _collapsed = new HashSet<string>();
+        private readonly ToolTip _tips = new ToolTip();
 
         /// <summary>The user clicked an entry: go to this line (0-based) in the current tab.</summary>
         public event EventHandler<int> LineSelected;
@@ -35,7 +36,7 @@ namespace TabbedNotepad
             _title = new Label { Text = "Navigator", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(Dpi.Scale(6), 0, 0, 0), Font = new Font(Font, FontStyle.Bold) };
             var close = new Button { Text = "✕", Dock = DockStyle.Right, Width = Dpi.Scale(28), FlatStyle = FlatStyle.Flat, TabStop = false, Font = new Font("Segoe UI Symbol", 8f) };
             close.FlatAppearance.BorderSize = 0;
-            new ToolTip().SetToolTip(close, "Hide the navigator (F9)");
+            _tips.SetToolTip(close, "Hide the navigator (F9)");
             close.Click += (s, e) => CloseClicked?.Invoke(this, EventArgs.Empty);
             header.Controls.Add(_title);
             header.Controls.Add(close);
@@ -78,6 +79,12 @@ namespace TabbedNotepad
             // A thin line between the panel and the text.
             Paint += (s, e) => { using (var p = new Pen(Color.FromArgb(220, 220, 220))) e.Graphics.DrawLine(p, 0, 0, 0, Height); };
             Padding = new Padding(1, 0, 0, 0);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _tips.Dispose();   // see FindPopup.Dispose
+            base.Dispose(disposing);
         }
 
         /// <summary>Rebuilds the list for a tab.</summary>

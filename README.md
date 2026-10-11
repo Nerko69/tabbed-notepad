@@ -38,6 +38,8 @@ No installation needed. It runs on Windows 10 and 11, which already include .NET
 - **Undo / Redo** (Ctrl+Z / Ctrl+Y), **F5** for time and date, plain-text paste.
 - **Open Text File:** open `.txt` files from anywhere in tabs. They're saved back into their own file.
 - **Save All Tabs As / Open Folder:** choose where your notes live.
+- **Quick tab switcher** (Ctrl+P): type part of a tab's name and press Enter.
+- **Daily backup:** a zip of all notes every day, kept for 30 days (Tools → Backups).
 
 See the **[user guide](docs/user-guide.md)** for details and all keyboard shortcuts.
 
@@ -55,7 +57,8 @@ Explorer. By default it is `Documents\TabbedNotepad`.
 - **File → Save All Tabs As…** saves every tab into a folder you pick and keeps saving there. The
   old folder stays as a backup. **File → Open Folder…** switches to another notes folder.
 
-To back up your notes, copy the notes folder. Only one copy of the app runs at a time;
+Backups are made automatically once a day in the `Backups` subfolder (or a folder you choose). You
+can also copy the notes folder yourself. Only one copy of the app runs at a time;
 starting it again brings the open window to the front.
 
 ## About
