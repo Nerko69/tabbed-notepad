@@ -152,18 +152,21 @@ namespace TabbedNotepad
                 g.FillRectangle(bar, r.X + 1, r.Bottom - Dpi.Scale(3), r.Width - 2, Dpi.Scale(3));
 
             string text = CategoryTag(tab.Category);
-            using (var font = new Font(_tabs.Font.FontFamily, _tabs.Font.Size * 0.75f, FontStyle.Bold))
+            using (var font = new Font(_tabs.Font.FontFamily, _tabs.Font.Size * 0.72f, FontStyle.Bold))
             {
-                Size size = TextRenderer.MeasureText(text, font, Size.Empty, TextFormatFlags.NoPadding);
-                int height = Math.Min(r.Height - Dpi.Scale(8), size.Height + Dpi.Scale(2));
-                var chip = new Rectangle(r.X + Dpi.Scale(6), r.Y + (r.Height - height) / 2 - Dpi.Scale(1), size.Width + Dpi.Scale(6), height);
+                Size size = TextRenderer.MeasureText(g, text, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                // Leave room above for the tab's border and below for the group color line.
+                int room = r.Height - Dpi.Scale(3) - Dpi.Scale(4);
+                int height = Math.Max(Math.Min(room, size.Height + Dpi.Scale(2)), Math.Min(size.Height, r.Height - Dpi.Scale(2)));
+                int top = r.Y + Dpi.Scale(2) + Math.Max(0, (room - height) / 2);
+                var chip = new Rectangle(r.X + Dpi.Scale(6), top, size.Width + Dpi.Scale(8), height);
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 using (var fill = new SolidBrush(color))
                 using (var path = RoundedRect(chip, Dpi.Scale(3)))
                     g.FillPath(fill, path);
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.Default;
                 TextRenderer.DrawText(g, text, font, chip, Color.White,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoClipping);
                 int used = chip.Right - r.X;
                 return new Rectangle(r.X + used, r.Y, r.Width - used, r.Height);
             }
