@@ -162,7 +162,7 @@ namespace TabbedNotepad
                 var chip = new Rectangle(r.X + Dpi.Scale(6), top, size.Width + Dpi.Scale(8), height);
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 using (var fill = new SolidBrush(color))
-                using (var path = RoundedRect(chip, Dpi.Scale(3)))
+                using (var path = RoundedBox(chip, Dpi.Scale(3)))
                     g.FillPath(fill, path);
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.Default;
                 TextRenderer.DrawText(g, text, font, chip, Color.White,
@@ -170,6 +170,18 @@ namespace TabbedNotepad
                 int used = chip.Right - r.X;
                 return new Rectangle(r.X + used, r.Y, r.Width - used, r.Height);
             }
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath RoundedBox(Rectangle r, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            int d = Math.Max(1, Math.Min(radius * 2, Math.Min(r.Width, r.Height)));
+            path.AddArc(r.X, r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
 
         // ---------------------------------------------------------------- Date/Time button
