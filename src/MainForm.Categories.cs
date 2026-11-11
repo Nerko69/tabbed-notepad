@@ -54,7 +54,9 @@ namespace TabbedNotepad
                     _categoryFilter = null;
                     shown = _allTabs.ToList();
                 }
-                // Rebuild the tab strip in the saved order.
+                // Rebuild the tab strip in the saved order. (First select a tab that stays put, so the
+                // selection never points past the end of the strip while pages are moved.)
+                if (_tabs.TabCount > 0 && !VisibleTabs.SequenceEqual(shown)) _tabs.SelectedIndex = 0;
                 foreach (var tab in VisibleTabs.ToList())
                     if (!shown.Contains(tab)) _tabs.TabPages.Remove(tab);
                 for (int i = 0; i < shown.Count; i++)
@@ -151,6 +153,8 @@ namespace TabbedNotepad
             UpdateTabToolTip(tab);
             _indexDirty = true;
             ScheduleSave();
+            UpdateTabBadges();
+            RegroupTabs();
             if (!PassesFilter(tab))
             {
                 // It no longer belongs in the category being shown.
@@ -187,6 +191,8 @@ namespace TabbedNotepad
                 ApplyCategoryFilter(_categoryFilter, keepEmpty: false);
                 _indexDirty = true;
                 ScheduleSave();
+                UpdateTabBadges();
+                RegroupTabs();
             }
         }
 

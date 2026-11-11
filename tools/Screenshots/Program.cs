@@ -205,7 +205,7 @@ namespace TabbedNotepad.Screenshots
             Check(reloaded.Any(n => n.ExternalPath != null), "opened text file remembered");
 
             // 10. Organizing: date lines, labels, bookmarks, navigator, word count, links.
-            tabs.SelectedIndex = 1;
+            tabs.SelectedTab = tabs.TabPages.Cast<NoteTab>().First(t => t.Text == "Domains");
             Pump(300);
             var domains = (NoteTab)tabs.SelectedTab;
             var ed = domains.Editor;
@@ -277,6 +277,16 @@ namespace TabbedNotepad.Screenshots
             Check(newTab.Category == "Course", "new tab category");
             Call(form, "RenameTabTo", newTab, "Course plan");
             Check(newTab.Editor.LineText(1) == "Path\t\t" + Path.Combine(notes, "Course plan.txt"), "header path follows a rename: " + newTab.Editor.LineText(1));
+            Check(!File.Exists(Path.Combine(notes, "Course ideas.txt")) && File.Exists(Path.Combine(notes, "Course plan.txt")),
+                "rename moves the file (no copy left under the old name)");
+            var allTabs = Get<List<NoteTab>>(form, "_allTabs");
+            Check(allTabs.FindIndex(t => t.Category == "CC247") + 1 == allTabs.FindLastIndex(t => t.Category == "CC247")
+                  && allTabs.FindIndex(t => t.Category == "WP Plugin") + 1 == allTabs.FindLastIndex(t => t.Category == "WP Plugin"),
+                "tabs grouped by category: " + string.Join(", ", allTabs.Select(t => t.Text + (t.Category != null ? "[" + t.Category + "]" : ""))));
+            Call(form, "SetTabCategory", newTab, "CC247");
+            Check(allTabs.IndexOf(newTab) == allTabs.FindLastIndex(t => t.Category == "CC247") && allTabs.IndexOf(newTab) == allTabs.FindIndex(t => t.Category == "CC247") + 2,
+                "a tab put in a category joins its group: " + allTabs.IndexOf(newTab));
+            Call(form, "SetTabCategory", newTab, "Course");
             Call(form, "CopyFilePath", newTab);
             Check(Clipboard.GetText() == Path.Combine(notes, "Course plan.txt"), "Copy File Path: " + Clipboard.GetText());
 
@@ -339,6 +349,28 @@ namespace TabbedNotepad.Screenshots
             File.WriteAllText(Path.Combine(backups, "TabbedNotepad-2020-01-01-0930.zip"), "old");
             int removed = Backup.Prune(backups, Backup.KeepDays, DateTime.Now);
             Check(removed == 2 && File.Exists(daily) && File.Exists(manual), "backups older than " + Backup.KeepDays + " days removed: " + removed);
+
+            // 15. Date/Time button, pasted tables and pictures, keeping the old file on rename.
+            Check(MainForm.DateTimeStamp(new DateTime(2026, 10, 16, 22, 45, 0)) == "10/16/2026-10:45 PM", "Date/Time stamp: " + MainForm.DateTimeStamp(new DateTime(2026, 10, 16, 22, 45, 0)));
+            Check(MainForm.CategoryTag("CC247") == "CC2" && MainForm.CategoryTag("WP Plugin") == "WPP", "category tags: " + MainForm.CategoryTag("CC247") + " " + MainForm.CategoryTag("WP Plugin"));
+            string table = HtmlTables.ToText("Version:0.9\r\n<html><body><!--StartFragment--><p>Prices</p><table><tr><th>Item</th><th>Price</th></tr>" +
+                "<tr><td>Tea &amp; milk</td><td>3.50</td></tr><tr><td>Coffee</td><td>12.00</td></tr></table><!--EndFragment--></body></html>");
+
+            Check(table != null && table.Contains("│ Item       │ Price │") && table.Contains("│ Tea & milk │  3.50 │") && table.StartsWith("Prices\n┌"), "pasted HTML table becomes a text table");
+            Check(HtmlTables.ToText("<b>no table</b>") == null, "HTML without a table pastes as plain text");
+            alpha = (NoteTab)tabs.TabPages[0];
+            tabs.SelectedTab = alpha;
+            using (var picture = new Bitmap(40, 30))
+            {
+                string imageLink = (string)Call(form, "SavePastedImage", picture);
+                Check(imageLink != null && imageLink.StartsWith("Image: file:///") && File.Exists(new Uri(imageLink.Substring(7).Trim()).LocalPath), "pasted picture saved: " + imageLink?.Trim());
+                Check(NoteEditor.FindLinks(imageLink ?? "").Any(), "picture link is clickable");
+            }
+            var keepItem = Get<ToolStripMenuItem>(form, "_keepOldFileItem");
+            keepItem.Checked = true;
+            Call(form, "RenameTabTo", newTab, "Course outline");
+            Check(File.Exists(Path.Combine(notes, "Course plan.txt")) && File.Exists(Path.Combine(notes, "Course outline.txt")), "rename with Keep Old File keeps both files");
+            keepItem.Checked = false;
 
             // 14. One row of tabs instead (View > Tabs in Multiple Rows off).
             Call(form, "SetMultiRow", false);

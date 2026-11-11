@@ -74,6 +74,8 @@ namespace TabbedNotepad
         {
             foreach (var link in NoteEditor.FindLinks(text))
             {
+                if (link.Url.StartsWith("file:", StringComparison.OrdinalIgnoreCase)) continue;   // pasted pictures
+
                 string context = LineAround(text, link.Start);
                 if (!_links.TryGetValue(link.Url, out var r))
                 {

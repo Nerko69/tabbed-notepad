@@ -42,7 +42,7 @@ At the bottom, the **status bar** shows:
 | To… | Do this |
 |---|---|
 | Add a tab | Click **+ New Tab** or press **Ctrl+T**, then type a name (e.g. a project name) |
-| Rename a tab | Double-click it, or press **F2** |
+| Rename a tab | Double-click it, or press **F2**. Its `.txt` file is renamed too (also for files opened from elsewhere) |
 | Switch tabs | Click a tab, **Ctrl+Tab** / **Ctrl+Shift+Tab**, or **Ctrl+1 … Ctrl+9** |
 | Go to a tab by name | **Ctrl+P**, type part of its name, Enter (see below) |
 | Move a tab | Drag it, or use the **◄ ►** buttons (**Ctrl+Shift+Page Up / Page Down**) |
@@ -75,6 +75,15 @@ one category**. The other tabs stay open and keep saving; choose **All tabs** to
   removes and reorders categories.
 - A tab's category shows in its tooltip.
 
+**Tab groups.** Like tab groups in a web browser, the tabs of a category stay together and each
+one shows the first letters of its category in a small colored tag (`CC2` for CC247, `Org` for
+OrgSys…), with a line of the same color along its bottom. A tab you put in a category, or create
+in it, joins the end of that group.
+
+- Moving a tab with **◄ ►** moves it within its group; at the end of the group, the whole group
+  moves past the next tab (and a tab without a category jumps over a whole group).
+- Turn these off with **View → Group Tabs by Category** and **View → Show Category on Tabs**.
+
 ![Category menu: showing only the CC247 tabs](images/12-categories.png)
 
 **New tabs** start with the date and time they were created and the full path of their file:
@@ -99,10 +108,27 @@ notes folder, so you can get it back.
 
 - **Saving is automatic.** A moment after you stop typing, the tab is saved. **Ctrl+S** saves
   immediately if you want to be sure.
-- **F5** inserts the current time and date, handy for a daily log.
+- **F5** inserts the current time and date (`10:45 PM 10/16/2026`), handy for a daily log.
+- The **Date/Time** button on the menu bar (or **Shift+F5**) inserts a date/time stamp:
+  `10/16/2026-10:45 PM`.
 - **Undo / Redo:** **Ctrl+Z** and **Ctrl+Y**, as many steps back as you need.
 - **Pasting** always pastes plain text, so text copied from a web page or Word doesn't bring its
   fonts and colors along.
+- **Tables** copied from a web page, Excel, Word or Google Sheets are pasted as a text table with
+  lined-up columns, so you don't have to line them up yourself:
+
+  ```
+  ┌────────────┬───────┐
+  │ Item       │ Price │
+  ├────────────┼───────┤
+  │ Tea & milk │  3.50 │
+  │ Coffee     │ 12.00 │
+  └────────────┴───────┘
+  ```
+- **Pictures** (a screenshot, or *Copy image* in a browser) can be pasted too. Notes are plain
+  text, so the picture is saved as a `.png` file in the `Images` folder inside your notes folder,
+  and a link to it is pasted: `Image: file:///C:/Users/…/TabbedNotepad/Images/Image-2026-10-16-224500.png`.
+  Click the link to open the picture.
 - **Links** (`https://…`, `www.…`) are underlined. **Click** one to open it in your web browser.
   **Hover** over one and a small **copy icon** appears at its end: click it to copy the link,
   without having to select it. You can also right-click a link → **Copy Link**.
@@ -113,7 +139,7 @@ notes folder, so you can get it back.
 
 These tools help you find your way around long notes, such as a daily log of domain research.
 
-![Line numbers with two bookmarked lines, shaded date lines, the labels AVADOMS and REGISTERED, and the Navigator](images/09-organize.png)
+![Line numbers with two bookmarked lines, date lines, the labels AVADOMS and REGISTERED, and the Navigator](images/09-organize.png)
 
 **Line numbers and bookmarks.** Line numbers run down the left side (turn them off with **View →
 Line Numbers**).
@@ -125,8 +151,8 @@ Line Numbers**).
 - Bookmarks stay on their line while you add or delete text above it.
 
 **Date lines.** A line with a run of at least five `-`, `=`, `_`, `*`, `~` or `#` characters,
-such as `-----------------2026-10-08`, is treated as a section divider. It is shaded gray and
-listed in the Navigator, so you can jump to any day. **Ctrl+D** inserts one with today's date:
+such as `-----------------2026-10-08` or `#####`, is treated as a section divider. It is listed in
+the Navigator, so you can jump to any day. **Ctrl+D** inserts one with today's date:
 `------------------------------2026-10-10`.
 
 **Labels.** Labels are words you use to mark your notes, like `AVADOMS` (available domains) or
@@ -213,6 +239,10 @@ read your notes with any editor, even without this app. To back them up, copy th
 | **Save a Copy of This Tab As…** | Saves a copy of the current tab as a `.txt` file wherever you like. |
 | **Save a Copy in Notes Folder** | For a tab opened with *Open Text File*: adds a copy of it as a normal tab in your notes folder. |
 
+**Renaming a tab renames its file**: `old-tab-name.txt` becomes `new-tab-name.txt`, with no copy
+left under the old name. If you'd like to keep the file under the old name as well, turn on
+**Tools → Keep Old File When Renaming a Tab**.
+
 **Text files opened with Open Text File** stay where they are. Their tab is shown in *italics*,
 the status bar shows the file's location, and your changes are saved back into that same file,
 in the format it had. If another program changes the file while it's open, you are asked which
@@ -250,7 +280,8 @@ To get a note back, open the zip in Explorer and copy the `.txt` file you need.
 | Ctrl+1 … Ctrl+9 | Go to tab 1 … 9 (Ctrl+9: last tab) |
 | Ctrl+Shift+Page Up / Page Down | Move tab left / right |
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
-| F5 | Insert time and date |
+| F5 | Insert time and date (`10:45 PM 10/16/2026`) |
+| Shift+F5 | Insert a date/time stamp (`10/16/2026-10:45 PM`), same as the **Date/Time** button |
 | Ctrl+D | Insert a date line (`-----…2026-10-10`) |
 | Click a line number / Ctrl+F2 | Bookmark a line |
 | F8 / Shift+F8 | Next / previous bookmark |

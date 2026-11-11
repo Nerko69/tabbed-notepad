@@ -10,8 +10,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <!-- Shown in Windows Explorer: right-click TabbedNotepad.exe > Properties > Details. -->
-    <Version>1.5.0</Version>
-    <FileVersion>1.5.0.0</FileVersion>
+    <Version>1.6.0</Version>
+    <FileVersion>1.6.0.0</FileVersion>
     <AssemblyTitle>Tabbed Notepad for better productivity</AssemblyTitle>
     <Product>Tabbed Notepad application by WebProgress.AI</Product>
     <Company>WebProgress.AI</Company>

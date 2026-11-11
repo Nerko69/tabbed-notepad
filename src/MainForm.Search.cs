@@ -300,11 +300,12 @@ namespace TabbedNotepad
             UpdateTabBadges();
         }
 
-        /// <summary>Makes room on the tabs for the match-count circles while a search is active.</summary>
+        /// <summary>Makes room on the tabs for the category tags, and for the match-count circles while a search is active.</summary>
         private void UpdateTabBadges()
         {
             int basePadding = Dpi.Scale(12);
             int wanted = _tabMatchCounts.Count > 0 ? basePadding + BadgeSpace / 2 : basePadding;
+            if (ShowCategoryOnTabs && _allTabs.Any(t => t.Category != null)) wanted += CategoryTagSpace / 2;
             if (_tabs.Padding.X != wanted)
                 _tabs.Padding = new Point(wanted, _tabs.Padding.Y);
             _tabs.Invalidate();

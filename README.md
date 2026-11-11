@@ -25,6 +25,7 @@ No installation needed. It runs on Windows 10 and 11, which already include .NET
 ## Features
 
 - **Tabs:** name, color, drag or ◄ ► to reorder. Tabs wrap onto more rows when there are many.
+  Tabs of a category are grouped together and show a small category tag, like tab groups in a browser.
 - **Categories** (CC247, OrgSys, WP Plugin, …): show only one category's tabs. Right-click a tab
   to copy its file path. New tabs start with their date/time and file path.
 - **Search** (Ctrl+F pops up a search box): every match is highlighted, and each tab shows how
@@ -35,7 +36,10 @@ No installation needed. It runs on Windows 10 and 11, which already include .NET
 - **Word and character counter** for each tab.
 - **All Links** (Ctrl+L): every link you ever wrote, with dates, plus a generated web page.
 - **Links:** click to open in your browser. Hover for a copy icon.
-- **Undo / Redo** (Ctrl+Z / Ctrl+Y), **F5** for time and date, plain-text paste.
+- **Undo / Redo** (Ctrl+Z / Ctrl+Y), **F5** for time and date, a **Date/Time** button for a
+  `10/16/2026-10:45 PM` stamp, plain-text paste.
+- **Paste tables and pictures:** tables become lined-up text tables; pictures are saved as `.png`
+  files and linked from the note.
 - **Open Text File:** open `.txt` files from anywhere in tabs. They're saved back into their own file.
 - **Save All Tabs As / Open Folder:** choose where your notes live.
 - **Quick tab switcher** (Ctrl+P): type part of a tab's name and press Enter.
