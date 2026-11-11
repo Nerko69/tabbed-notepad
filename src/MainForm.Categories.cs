@@ -54,17 +54,18 @@ namespace TabbedNotepad
                     _categoryFilter = null;
                     shown = _allTabs.ToList();
                 }
-                // Rebuild the tab strip in the saved order. (First select a tab that stays put, so the
-                // selection never points past the end of the strip while pages are moved.)
-                if (_tabs.TabCount > 0 && !VisibleTabs.SequenceEqual(shown)) _tabs.SelectedIndex = 0;
-                foreach (var tab in VisibleTabs.ToList())
-                    if (!shown.Contains(tab)) _tabs.TabPages.Remove(tab);
-                for (int i = 0; i < shown.Count; i++)
+                // Rebuild the tab strip in the saved order: keep the tabs that are already in place,
+                // take off the rest and add them back in order. (Pages are only ever added at the
+                // end: before the window exists, Windows' tab control can't insert in the middle.)
+                var visible = VisibleTabs.ToList();
+                int same = 0;
+                while (same < visible.Count && same < shown.Count && visible[same] == shown[same]) same++;
+                if (same < visible.Count || same < shown.Count)
                 {
-                    int at = _tabs.TabPages.IndexOf(shown[i]);
-                    if (at == i) continue;
-                    if (at >= 0) _tabs.TabPages.Remove(shown[i]);
-                    _tabs.TabPages.Insert(i, shown[i]);
+                    // Select a tab that stays put, so the selection never points past the end of the strip.
+                    if (same > 0) _tabs.SelectedIndex = 0;
+                    for (int i = visible.Count - 1; i >= same; i--) _tabs.TabPages.Remove(visible[i]);
+                    for (int i = same; i < shown.Count; i++) _tabs.TabPages.Add(shown[i]);
                 }
                 if (current != null && shown.Contains(current)) _tabs.SelectedTab = current;
                 else if (_tabs.TabCount > 0) _tabs.SelectedIndex = 0;
