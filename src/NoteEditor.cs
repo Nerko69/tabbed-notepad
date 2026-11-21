@@ -289,8 +289,10 @@ namespace TabbedNotepad
                 case WM_LBUTTONDOWN:
                 {
                     Point p = PointFromLParam(m.LParam);
-                    bool shift = (ModifierKeys & Keys.Shift) != 0;
-                    bool ctrl = (ModifierKeys & Keys.Control) != 0;
+                    // The keys and buttons held when the message was sent (MK_SHIFT, MK_CONTROL).
+                    int keys = unchecked((int)m.WParam.ToInt64());
+                    bool shift = (keys & 0x0004) != 0;
+                    bool ctrl = (keys & 0x0008) != 0;
                     // Clicks on links (they open on click) and Ctrl+clicks go to the control as usual.
                     if (ctrl || (!shift && LinkAtPoint(p) != null)) return false;
                     if (!Focused) Focus();
@@ -313,7 +315,7 @@ namespace TabbedNotepad
                 }
                 case WM_MOUSEMOVE:
                     if (!_selecting) return false;
-                    if ((MouseButtons & MouseButtons.Left) == 0) { EndMouseSelection(); return false; }
+                    if ((unchecked((int)m.WParam.ToInt64()) & 0x0001) == 0) { EndMouseSelection(); return false; }   // MK_LBUTTON released
                     ExtendSelectionTo(PointFromLParam(m.LParam));
                     return true;
                 case WM_LBUTTONUP:

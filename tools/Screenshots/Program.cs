@@ -397,6 +397,8 @@ namespace TabbedNotepad.Screenshots
             Check(shortcuts.Controls.OfType<TextBox>().Any(t => t.ReadOnly && t.Text.Contains("Ctrl+T")), "keyboard shortcuts in a copyable text box");
             CheckButtonsFit(shortcuts, "Keyboard Shortcuts");
             shortcuts.Close();
+            tabs.SelectedTab = alpha;
+            Pump(200);
             if (Environment.OSVersion.Platform == PlatformID.Win32NT) CheckMouseSelection(alpha.Editor);
 
             // 14. One row of tabs instead (View > Tabs in Multiple Rows off).
@@ -532,20 +534,14 @@ namespace TabbedNotepad.Screenshots
                 "mouse selection follows the mouse letter by letter: \"" + editor.SelectedText + "\"");
             // Shift+click extends it to another letter in the middle of a word.
             int further = text.IndexOf("client") + 4;
-            Keyboard(0x10, down: true);
-            SendMessage(editor.Handle, WM_LBUTTONDOWN, (IntPtr)(MK_LBUTTON | 4), At(further));
-            SendMessage(editor.Handle, WM_LBUTTONUP, (IntPtr)4, At(further));
-            Keyboard(0x10, down: false);
+            const int MK_SHIFT = 4;
+            SendMessage(editor.Handle, WM_LBUTTONDOWN, (IntPtr)(MK_LBUTTON | MK_SHIFT), At(further));
+            SendMessage(editor.Handle, WM_LBUTTONUP, (IntPtr)MK_SHIFT, At(further));
             Pump(100);
             Check(editor.SelectionStart == from && editor.SelectionLength == further - from,
                 "Shift+click extends the selection to the exact letter: \"" + editor.SelectedText + "\"");
             editor.Select(0, 0);
         }
-
-        [DllImport("user32.dll")]
-        private static extern void keybd_event(byte key, byte scan, int flags, IntPtr extra);
-
-        private static void Keyboard(byte key, bool down) => keybd_event(key, 0, down ? 0 : 2, IntPtr.Zero);
 
         private static T Get<T>(object target, string field) =>
             (T)target.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(target);
