@@ -1,11 +1,18 @@
 name: Release
 
-# Pushing a version tag (e.g. v1.7.0) builds Tabbed Notepad, checks it, and publishes a GitHub
-# release with TabbedNotepad.exe attached. The release text comes from docs/releases/<tag>.md.
+# Builds Tabbed Notepad, checks it, and publishes a GitHub release with TabbedNotepad.exe attached.
+# Start it by pushing a version tag (e.g. v1.7.0), or by hand (Actions → Release → Run workflow) with
+# the version: the tag is then created on the chosen branch. The release text comes from
+# docs/releases/<tag>.md.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to create and release, e.g. v1.7.0
+        required: true
 
 permissions:
   contents: write   # to create the release
@@ -32,7 +39,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = "${{ inputs.tag || github.ref_name }}"
           $notes = "docs/releases/$tag.md"
           if (-not (Test-Path $notes)) { Set-Content $notes "Tabbed Notepad $tag" }
-          gh release create $tag "src/bin/Release/net48/TabbedNotepad.exe" --title "Tabbed Notepad $($tag.TrimStart('v'))" --notes-file $notes
+          gh release create $tag "src/bin/Release/net48/TabbedNotepad.exe" --target "${{ github.sha }}" --title "Tabbed Notepad $($tag.TrimStart('v'))" --notes-file $notes
