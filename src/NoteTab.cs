@@ -19,6 +19,7 @@ namespace TabbedNotepad
         private readonly ToolTip _toolTip;
         private readonly LineNumberGutter _gutter;
         private readonly MarkerBar _markerBar;
+        private readonly Panel _gap;
         private Color _tabColor;
 
         /// <summary>The tab's file name in the notes folder, without ".txt" (for files opened from elsewhere: an internal id).</summary>
@@ -51,7 +52,7 @@ namespace TabbedNotepad
             Editor.Select(0, 0);
 
             _colorStrip = new Panel { Dock = DockStyle.Top, Height = Dpi.Scale(4) };
-            var gap = new Panel { Dock = DockStyle.Top, Height = Dpi.Scale(3), BackColor = SystemColors.Window };
+            var gap = _gap = new Panel { Dock = DockStyle.Top, Height = Dpi.Scale(3), BackColor = SystemColors.Window };
 
             _copyButton = new CopyLinkButton();
             _toolTip = new ToolTip();
@@ -73,7 +74,7 @@ namespace TabbedNotepad
             _hideCopyTimer.Tick += (s, e) => HideCopyButton();
 
             Editor.MouseMove += (s, e) => UpdateCopyButton(e.Location);
-            Editor.MouseLeave += (s, e) => { if (_copyButton.Visible) _hideCopyTimer.Start(); };
+            Editor.MouseLeave += (s, e) => { if (_copyButton.Visible) _hideCopyTimer.Start(); HidePreview(); };
             Editor.VScroll += (s, e) => HideCopyButton();
             Editor.HScroll += (s, e) => HideCopyButton();
             Editor.TextChanged += (s, e) => HideCopyButton();
@@ -96,6 +97,24 @@ namespace TabbedNotepad
             }
         }
 
+        /// <summary>The note's background and text colors (Format → Background Color); the margins follow.</summary>
+        public void SetColors(Color back, Color fore)
+        {
+            if (Editor.BackColor == back && Editor.ForeColor == fore) return;
+            Editor.BackColor = back;
+            Editor.ForeColor = fore;
+            BackColor = back;
+            _gap.BackColor = back;
+            Color margin = TabColors.Blend(back, fore, 0.04);
+            _gutter.BackColor = margin;
+            _gutter.ForeColor = TabColors.Blend(back, fore, 0.45);
+            _gutter.CurrentLineColor = TabColors.Blend(back, fore, 0.85);
+            _gutter.EdgeColor = TabColors.Blend(back, fore, 0.12);
+            _markerBar.BackColor = margin;
+            _gutter.Invalidate();
+            _markerBar.Invalidate();
+        }
+
         public bool ShowLineNumbers
         {
             get => _gutter.Visible;
@@ -115,17 +134,31 @@ namespace TabbedNotepad
             Category = Category,
         };
 
+        /// <summary>One picture preview for the whole app (only one link is under the mouse at a time).</summary>
+        private static ImagePreview _preview;
+
         private void UpdateCopyButton(Point mouse)
         {
             var link = Editor.LinkAtPoint(mouse);
             if (link == null)
             {
                 if (_copyButton.Visible) _hideCopyTimer.Start();
+                HidePreview();
                 return;
             }
 
             _hideCopyTimer.Stop();
             var span = link.Value;
+            if (ImagePreview.IsImageUrl(span.Url))
+            {
+                if (_preview == null || _preview.IsDisposed) _preview = new ImagePreview();
+                Point below = Editor.PointToScreen(new Point(mouse.X + Dpi.Scale(12), Editor.GetPositionFromCharIndex(span.Start).Y + Editor.LineHeight + Dpi.Scale(4)));
+                _preview.ShowFor(span.Url, below, FindForm());
+            }
+            else
+            {
+                HidePreview();
+            }
             if (_copyButton.Visible && _copyButton.Url == span.Url) return;
 
             // Place the icon right after the link's last character, vertically centred on its line.
@@ -143,6 +176,12 @@ namespace TabbedNotepad
         {
             _hideCopyTimer.Stop();
             _copyButton.Visible = false;
+            HidePreview();
+        }
+
+        private static void HidePreview()
+        {
+            if (_preview != null && !_preview.IsDisposed && _preview.Visible) _preview.Hide();
         }
 
         private void CopyLink()
@@ -233,6 +272,10 @@ namespace TabbedNotepad
         /// <summary>A darker shade of a tab color, for the selected tab's outline.</summary>
         public static Color Darker(Color c, double factor = 0.55) =>
             Color.FromArgb((int)(c.R * factor), (int)(c.G * factor), (int)(c.B * factor));
+
+        /// <summary>Mixes two colors: 0 = all <paramref name="a"/>, 1 = all <paramref name="b"/>.</summary>
+        public static Color Blend(Color a, Color b, double amount) =>
+            Color.FromArgb(a.R + (int)((b.R - a.R) * amount), a.G + (int)((b.G - a.G) * amount), a.B + (int)((b.B - a.B) * amount));
 
         /// <summary>A lighter version, for tabs that are not selected.</summary>
         public static Color Lighter(Color c, double amount = 0.35) =>

@@ -143,6 +143,7 @@ namespace TabbedNotepad
             edit.DropDownItems.Add(Item("Time/&Date", Keys.F5, (s, e) => InsertTimeDate()));
             edit.DropDownItems.Add(Item("Date/Time &Stamp", Keys.Shift | Keys.F5, (s, e) => InsertDateTimeStamp()));
             edit.DropDownItems.Add(Item("Insert Date &Line", Keys.Control | Keys.D, (s, e) => InsertDateLine()));
+            edit.DropDownItems.Add(Item("Insert &Picture Link...", Keys.None, (s, e) => InsertPictureLink()));
             edit.DropDownItems.Add(new ToolStripSeparator());
             edit.DropDownItems.Add(Item("Toggle &Bookmark", Keys.Control | Keys.F2, (s, e) => ToggleBookmarkAtCursor()));
             edit.DropDownItems.Add(Item("Next Boo&kmark", Keys.F8, (s, e) => GoToBookmark(+1)));
@@ -157,6 +158,7 @@ namespace TabbedNotepad
             _wordWrapItem = Item("&Word Wrap", Keys.None, (s, e) => SetWordWrap(!_wordWrapItem.Checked));
             format.DropDownItems.Add(_wordWrapItem);
             format.DropDownItems.Add(Item("&Font...", Keys.None, (s, e) => ChooseFont()));
+            format.DropDownItems.Add(BuildBackgroundMenu());
             format.DropDownItems.Add(new ToolStripSeparator());
             format.DropDownItems.Add(BuildColorMenu("Tab &Color"));
 
@@ -167,7 +169,7 @@ namespace TabbedNotepad
             _popupSearchItem = Item("Ctrl+F Opens &Pop-up Search", Keys.None, (s, e) => { _popupSearchItem.Checked = !_popupSearchItem.Checked; _indexDirty = true; ScheduleSave(); });
             view.DropDownItems.Add(Item("&Go to Tab...", Keys.Control | Keys.P, (s, e) => ShowQuickSwitcher()));
             view.DropDownItems.Add(new ToolStripSeparator());
-            _groupTabsItem = Item("&Group Tabs by Category", Keys.None, (s, e) => SetGroupTabs(!_groupTabsItem.Checked));
+            _groupTabsItem = Item("&Group Tabs by Category (Same Color)", Keys.None, (s, e) => SetGroupTabs(!_groupTabsItem.Checked));
             _categoryOnTabsItem = Item("Show &Category on Tabs", Keys.None, (s, e) => SetCategoryOnTabs(!_categoryOnTabsItem.Checked));
             view.DropDownItems.AddRange(new ToolStripItem[] { _lineNumbersItem, _navigatorItem, new ToolStripSeparator(), _multiRowItem, _groupTabsItem, _categoryOnTabsItem, _popupSearchItem });
 
@@ -194,13 +196,18 @@ namespace TabbedNotepad
             _categoryMenu = new ToolStripMenuItem("Category: All") { ToolTipText = "Show only the tabs of one category" };
             _categoryMenu.DropDownOpening += (s, e) => FillCategoryFilterMenu();
             _categoryMenu.DropDownItems.Add("(loading)");
-            var stamp = new ToolStripMenuItem("Date/Time", ClockImage())
+            // Two buttons for the stamps used all the time, drawn as buttons so they stand out.
+            var stamp = new MenuButton("Date/Time", ClockImage())
             {
                 ToolTipText = "Insert the date and time, like " + DateTimeStamp(DateTime.Now) + " (Shift+F5)",
-                ImageScaling = ToolStripItemImageScaling.None,
             };
             stamp.Click += (s, e) => InsertDateTimeStamp();
-            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, view, tools, help, _categoryMenu, stamp });
+            var timestamp = new MenuButton("Timestamp", ClockImage())
+            {
+                ToolTipText = "Insert the time and date, like " + DateTime.Now.ToShortTimeString() + " " + DateTime.Now.ToShortDateString() + " (F5)",
+            };
+            timestamp.Click += (s, e) => { InsertTimeDate(); CurrentEditor?.Focus(); };
+            menu.Items.AddRange(new ToolStripItem[] { file, edit, format, view, tools, help, _categoryMenu, stamp, timestamp });
             // Right side of the menu bar: search, move-tab arrows and "+ New Tab".
             // Right-aligned items are placed from the right edge inwards, so they're added in reverse.
             var plus = new ToolStripMenuItem("+ New Tab") { Alignment = ToolStripItemAlignment.Right, ToolTipText = "New tab (Ctrl+T)" };
@@ -382,7 +389,10 @@ namespace TabbedNotepad
             _tabs.Multiline = _multiRowItem.Checked;
             _lineNumbersItem.Checked = !settings.TryGetValue("linenumbers", out string lineNumbers) || lineNumbers != "0";
             _popupSearchItem.Checked = !settings.TryGetValue("popupsearch", out string popup) || popup != "0";
-            _groupTabsItem.Checked = !settings.TryGetValue("grouptabs", out string groupTabs) || groupTabs != "0";
+            // Off unless turned on ("autogroup"; version 1.6 had it on by default under another name).
+            _groupTabsItem.Checked = settings.TryGetValue("autogroup", out string groupTabs) && groupTabs == "1";
+            _noteBack = ParseColor(settings.TryGetValue("noteback", out string noteBack) ? noteBack : null, Color.White);
+            _noteFore = ParseColor(settings.TryGetValue("notefore", out string noteFore) ? noteFore : null, Color.Black);
             _categoryOnTabsItem.Checked = !settings.TryGetValue("categoryontabs", out string categoryOnTabs) || categoryOnTabs != "0";
             _keepOldFileItem.Checked = settings.TryGetValue("keepoldfile", out string keepOld) && keepOld == "1";
             NoteLabels.FromSetting(settings.TryGetValue("labels", out string labels) ? labels : "");
@@ -515,6 +525,7 @@ namespace TabbedNotepad
         private void AddTab(NoteTab tab, int index = -1)
         {
             tab.Editor.Font = _editorFont;
+            tab.SetColors(_noteBack, _noteFore);
             tab.Editor.WordWrap = _wordWrapItem.Checked;
             tab.Editor.ScrollBars = _wordWrapItem.Checked ? RichTextBoxScrollBars.Vertical : RichTextBoxScrollBars.Both;
             tab.Editor.ClearUndo();
@@ -619,7 +630,9 @@ namespace TabbedNotepad
                     settings["linenumbers"] = _lineNumbersItem.Checked ? "1" : "0";
                     settings["navigator"] = _navigatorItem.Checked ? "1" : "0";
                     settings["popupsearch"] = _popupSearchItem.Checked ? "1" : "0";
-                    settings["grouptabs"] = _groupTabsItem.Checked ? "1" : "0";
+                    settings["autogroup"] = _groupTabsItem.Checked ? "1" : "0";
+                    settings["noteback"] = ColorTranslator.ToHtml(_noteBack);
+                    settings["notefore"] = ColorTranslator.ToHtml(_noteFore);
                     settings["categoryontabs"] = _categoryOnTabsItem.Checked ? "1" : "0";
                     settings["keepoldfile"] = _keepOldFileItem.Checked ? "1" : "0";
                     settings["labels"] = NoteLabels.ToSetting();
@@ -972,6 +985,7 @@ namespace TabbedNotepad
             Rectangle r = e.Bounds;
 
             Color color = tab.TabColor.IsEmpty ? SystemColors.Control : tab.TabColor;
+            if (GroupTabs && tab.Category != null) color = TabColors.Lighter(GroupColor(tab.Category), 0.72);   // one color per group
             using (var fill = new SolidBrush(selected ? color : TabColors.Lighter(color)))
                 g.FillRectangle(fill, r);
             if (selected)
@@ -1166,7 +1180,7 @@ namespace TabbedNotepad
 
         private void ShowHelp()
         {
-            MessageBox.Show(this,
+            ShowTextWindow(
                 "Tabs\n" +
                 "  Ctrl+T\tNew tab (or click \"+ New Tab\")\n" +
                 "  F2\tRename tab (or double-click the tab)\n" +
@@ -1200,7 +1214,20 @@ namespace TabbedNotepad
                 "  Ctrl+Shift+S\tSave all tabs as... (pick a folder)\n" +
                 "  Tools > Backups\tDaily zip backup of all notes (last 30 days)\n\n" +
                 "Your notes are saved automatically, one .txt file per tab, in:\n" + _store.Folder,
-                "Keyboard Shortcuts - " + AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                "Keyboard Shortcuts - " + AppName);
+        }
+
+        /// <summary>Shows text in a window where it can be selected and copied ("key\tdescription" lines become two columns).</summary>
+        private void ShowTextWindow(string text, string title)
+        {
+            var lines = text.Split('\n');
+            int keyWidth = lines.Where(l => l.Contains('\t')).Select(l => l.Substring(0, l.IndexOf('\t')).Length).DefaultIfEmpty(0).Max() + 3;
+            string columns = string.Join("\r\n", lines.Select(l =>
+            {
+                int tab = l.IndexOf('\t');
+                return tab < 0 ? l : l.Substring(0, tab).PadRight(keyWidth) + l.Substring(tab).TrimStart('\t');
+            }));
+            using (var dialog = new TextWindow(title, columns)) dialog.ShowDialog(this);
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)

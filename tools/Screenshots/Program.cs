@@ -227,7 +227,7 @@ namespace TabbedNotepad.Screenshots
             // Insert date line (Ctrl+D).
             ed.Select(ed.TextLength, 0);
             Call(form, "InsertDateLine");
-            Check(ed.SectionLines.Count == 3 && ed.LineText(ed.SectionLines[2]).EndsWith(DateTime.Now.ToString("yyyy-MM-dd")), "Insert Date Line");
+            Check(ed.SectionLines.Count == 3 && ed.LineText(ed.SectionLines[2]) == new string('-', 99) + DateTime.Now.ToString("yyyy-MM-dd"), "Insert Date Line (99 dashes)");
             ed.Undo();
             Pump(200);
             Check(ed.SectionLines.Count == 2, "Undo of the date line");
@@ -249,7 +249,13 @@ namespace TabbedNotepad.Screenshots
             labelsDialog.Show(form);
             Pump(500);
             ShotUnion("10-labels.png", form.Bounds, labelsDialog.Bounds);
+            CheckButtonsFit(labelsDialog, "Labels");
             labelsDialog.Close();
+            var categoriesDialog = new CategoriesDialog(TabCategories.Items, c => 0);
+            categoriesDialog.Show(form);
+            Pump(300);
+            CheckButtonsFit(categoriesDialog, "Tab Categories");
+            categoriesDialog.Close();
             Pump(200);
 
             // All Links window and web page.
@@ -280,6 +286,8 @@ namespace TabbedNotepad.Screenshots
             Check(!File.Exists(Path.Combine(notes, "Course ideas.txt")) && File.Exists(Path.Combine(notes, "Course plan.txt")),
                 "rename moves the file (no copy left under the old name)");
             var allTabs = Get<List<NoteTab>>(form, "_allTabs");
+            Check(!Get<ToolStripMenuItem>(form, "_groupTabsItem").Checked, "grouping tabs is off unless turned on");
+            Call(form, "SetGroupTabs", true);
             Check(allTabs.FindIndex(t => t.Category == "CC247") + 1 == allTabs.FindLastIndex(t => t.Category == "CC247")
                   && allTabs.FindIndex(t => t.Category == "WP Plugin") + 1 == allTabs.FindLastIndex(t => t.Category == "WP Plugin"),
                 "tabs grouped by category: " + string.Join(", ", allTabs.Select(t => t.Text + (t.Category != null ? "[" + t.Category + "]" : ""))));
@@ -287,6 +295,7 @@ namespace TabbedNotepad.Screenshots
             Check(allTabs.IndexOf(newTab) == allTabs.FindLastIndex(t => t.Category == "CC247") && allTabs.IndexOf(newTab) == allTabs.FindIndex(t => t.Category == "CC247") + 2,
                 "a tab put in a category joins its group: " + allTabs.IndexOf(newTab));
             Call(form, "SetTabCategory", newTab, "Course");
+            Call(form, "SetGroupTabs", false);
             Call(form, "CopyFilePath", newTab);
             Check(Clipboard.GetText() == Path.Combine(notes, "Course plan.txt"), "Copy File Path: " + Clipboard.GetText());
 
@@ -371,6 +380,24 @@ namespace TabbedNotepad.Screenshots
             Call(form, "RenameTabTo", newTab, "Course outline");
             Check(File.Exists(Path.Combine(notes, "Course plan.txt")) && File.Exists(Path.Combine(notes, "Course outline.txt")), "rename with Keep Old File keeps both files");
             keepItem.Checked = false;
+
+            // 16. Image links show a preview; background colors; copyable keyboard shortcuts.
+            Check(ImagePreview.IsImageUrl("https://example.com/pics/cat.jpg") && ImagePreview.IsImageUrl("file:///C:/notes/Images/a%20b.png")
+                  && !ImagePreview.IsImageUrl("https://example.com/page"), "image links recognised for the preview");
+            Call(form, "SetNoteColors", Color.FromArgb(0x1E, 0x1E, 0x1E), Color.FromArgb(0xD8, 0xD8, 0xD8));
+            Check(alpha.Editor.BackColor.ToArgb() == Color.FromArgb(0x1E, 0x1E, 0x1E).ToArgb() && alpha.Editor.ForeColor.ToArgb() == Color.FromArgb(0xD8, 0xD8, 0xD8).ToArgb(), "background color applied to the notes");
+            Pump(300);
+            Shot(form, "14-night-colors.png");
+            Call(form, "SaveAll", true, false);
+            Check(File.ReadAllText(Path.Combine(notes, "tabs.ini")).Contains("noteback=#1E1E1E"), "background color saved");
+            Call(form, "SetNoteColors", Color.White, Color.Black);
+            var shortcuts = new TextWindow("Keyboard Shortcuts", "Ctrl+T     New tab");
+            shortcuts.Show(form);
+            Pump(200);
+            Check(shortcuts.Controls.OfType<TextBox>().Any(t => t.ReadOnly && t.Text.Contains("Ctrl+T")), "keyboard shortcuts in a copyable text box");
+            CheckButtonsFit(shortcuts, "Keyboard Shortcuts");
+            shortcuts.Close();
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT) CheckMouseSelection(alpha.Editor);
 
             // 14. One row of tabs instead (View > Tabs in Multiple Rows off).
             Call(form, "SetMultiRow", false);
@@ -467,6 +494,58 @@ namespace TabbedNotepad.Screenshots
                 Thread.Sleep(15);
             }
         }
+
+        private static void CheckButtonsFit(Control dialog, string name)
+        {
+            var buttons = new List<Button>();
+            void Walk(Control c) { foreach (Control child in c.Controls) { if (child is Button b) buttons.Add(b); Walk(child); } }
+            Walk(dialog);
+            var small = buttons.Where(b => b.Height < TextRenderer.MeasureText(b.Text, b.Font).Height + 6).Select(b => b.Text + " " + b.Height).ToList();
+            Check(buttons.Count > 0 && small.Count == 0, name + " buttons tall enough for their text" + (small.Count > 0 ? ": " + string.Join(", ", small) : ""));
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        /// <summary>Drags across text with (simulated) mouse messages: the selection must start and end exactly at the letters the mouse was on.</summary>
+        private static void CheckMouseSelection(NoteEditor editor)
+        {
+            const int WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202, MK_LBUTTON = 1;
+            editor.Focus();
+            editor.Select(0, 0);
+            editor.ScrollToCaret();
+            Pump(200);
+            string text = editor.PlainText;
+            int from = text.IndexOf("ready") + 2;   // inside a word
+            int to = text.IndexOf("testing") + 3;   // inside another word
+            IntPtr At(int index)
+            {
+                Point p = editor.GetPositionFromCharIndex(index);
+                p.Offset(1, editor.LineHeight / 2);   // just right of the gap before the letter
+                return (IntPtr)((p.Y << 16) | (p.X & 0xFFFF));
+            }
+            SendMessage(editor.Handle, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, At(from));
+            SendMessage(editor.Handle, WM_MOUSEMOVE, (IntPtr)MK_LBUTTON, At(to));
+            SendMessage(editor.Handle, WM_LBUTTONUP, IntPtr.Zero, At(to));
+            Pump(100);
+            Check(editor.SelectionStart == from && editor.SelectionLength == to - from,
+                "mouse selection follows the mouse letter by letter: \"" + editor.SelectedText + "\"");
+            // Shift+click extends it to another letter in the middle of a word.
+            int further = text.IndexOf("client") + 4;
+            Keyboard(0x10, down: true);
+            SendMessage(editor.Handle, WM_LBUTTONDOWN, (IntPtr)(MK_LBUTTON | 4), At(further));
+            SendMessage(editor.Handle, WM_LBUTTONUP, (IntPtr)4, At(further));
+            Keyboard(0x10, down: false);
+            Pump(100);
+            Check(editor.SelectionStart == from && editor.SelectionLength == further - from,
+                "Shift+click extends the selection to the exact letter: \"" + editor.SelectedText + "\"");
+            editor.Select(0, 0);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern void keybd_event(byte key, byte scan, int flags, IntPtr extra);
+
+        private static void Keyboard(byte key, bool down) => keybd_event(key, 0, down ? 0 : 2, IntPtr.Zero);
 
         private static T Get<T>(object target, string field) =>
             (T)target.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(target);

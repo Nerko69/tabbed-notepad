@@ -49,6 +49,47 @@ namespace TabbedNotepad
         [DllImport("gdi32.dll")]
         private static extern bool DeleteObject(IntPtr handle);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string fileName);
+
+        private const int WM_MOUSEMOVE = 0x0200;
+        private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_LBUTTONUP = 0x0202;
+        private const int WM_CAPTURECHANGED = 0x0215;
+        private const int WM_VSCROLL = 0x0115;
+        private const int EM_SETSEL = 0x00B1;
+        private const int SB_LINEUP = 0, SB_LINEDOWN = 1;
+
+        private static readonly bool OnWindows = Environment.OSVersion.Platform == PlatformID.Win32NT;
+
+        /// <summary>The newer rich edit control (msftedit.dll, as used by current .NET): faster with long text.</summary>
+        private static readonly bool HasRichEdit50 = OnWindows && LoadRichEdit50();
+
+        private static bool LoadRichEdit50()
+        {
+            try
+            {
+                return LoadLibrary("msftedit.dll") != IntPtr.Zero;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                if (HasRichEdit50) cp.ClassName = "RICHEDIT50W";
+                return cp;
+            }
+        }
+
         private static readonly Regex UrlPattern = new Regex(
             @"\b(?:https?://|www\.|file:///)[^\s<>""'`]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -208,6 +249,7 @@ namespace TabbedNotepad
                 PastePlainText();
                 return;
             }
+            if (OnWindows && HandleMouseSelection(ref m)) return;
             if (m.Msg != WM_PAINT)
             {
                 base.WndProc(ref m);
@@ -229,6 +271,136 @@ namespace TabbedNotepad
         }
 
         private static readonly Graphics _regionTest = Graphics.FromImage(new Bitmap(1, 1));
+
+        // ---------------------------------------------------------------- mouse selection
+
+        // The rich edit control's own mouse selection "helps" by jumping to whole words, and
+        // Shift+click only lands on some spots. Selecting with the left button is done here instead:
+        // the selection goes exactly from where the button went down (or, with Shift, from the
+        // current selection) to the letter gap nearest the mouse. Double-click still selects a word.
+        private bool _selecting;
+        private int _anchor;
+        private Timer _selectScroll;
+
+        private bool HandleMouseSelection(ref Message m)
+        {
+            switch (m.Msg)
+            {
+                case WM_LBUTTONDOWN:
+                {
+                    Point p = PointFromLParam(m.LParam);
+                    bool shift = (ModifierKeys & Keys.Shift) != 0;
+                    bool ctrl = (ModifierKeys & Keys.Control) != 0;
+                    // Clicks on links (they open on click) and Ctrl+clicks go to the control as usual.
+                    if (ctrl || (!shift && LinkAtPoint(p) != null)) return false;
+                    if (!Focused) Focus();
+                    int index = CaretIndexAt(p);
+                    if (shift)
+                    {
+                        int start = SelectionStart, end = SelectionStart + SelectionLength;
+                        if (!_haveAnchor || _anchor < start || _anchor > end || (SelectionLength > 0 && _anchor != start && _anchor != end))
+                            _anchor = index < start ? end : start;
+                    }
+                    else
+                    {
+                        _anchor = index;
+                    }
+                    _haveAnchor = true;
+                    SetSelection(_anchor, index);
+                    _selecting = true;
+                    Capture = true;
+                    return true;
+                }
+                case WM_MOUSEMOVE:
+                    if (!_selecting) return false;
+                    if ((MouseButtons & MouseButtons.Left) == 0) { EndMouseSelection(); return false; }
+                    ExtendSelectionTo(PointFromLParam(m.LParam));
+                    return true;
+                case WM_LBUTTONUP:
+                    if (!_selecting) return false;
+                    ExtendSelectionTo(PointFromLParam(m.LParam));
+                    EndMouseSelection();
+                    return true;
+                case WM_CAPTURECHANGED:
+                    if (_selecting) EndMouseSelection();
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
+        private bool _haveAnchor;
+
+        private static Point PointFromLParam(IntPtr lParam)
+        {
+            int value = unchecked((int)lParam.ToInt64());
+            return new Point((short)(value & 0xFFFF), (short)((value >> 16) & 0xFFFF));
+        }
+
+        private void ExtendSelectionTo(Point p)
+        {
+            SetSelection(_anchor, CaretIndexAt(p));
+            // Above or below the text: keep scrolling while the button is held.
+            bool outside = p.Y < 0 || p.Y > ClientSize.Height;
+            if (outside && _selectScroll == null)
+            {
+                _selectScroll = new Timer { Interval = 60 };
+                _selectScroll.Tick += (s, e) =>
+                {
+                    Point mouse = PointToClient(MousePosition);
+                    if (!_selecting || (mouse.Y >= 0 && mouse.Y <= ClientSize.Height)) { StopSelectScroll(); return; }
+                    SendMessage(Handle, WM_VSCROLL, (IntPtr)(mouse.Y < 0 ? SB_LINEUP : SB_LINEDOWN), IntPtr.Zero);
+                    SetSelection(_anchor, CaretIndexAt(mouse));
+                };
+                _selectScroll.Start();
+            }
+            else if (!outside)
+            {
+                StopSelectScroll();
+            }
+        }
+
+        private void StopSelectScroll()
+        {
+            _selectScroll?.Dispose();
+            _selectScroll = null;
+        }
+
+        private void EndMouseSelection()
+        {
+            _selecting = false;
+            StopSelectScroll();
+            if (Capture) Capture = false;
+        }
+
+        /// <summary>Selects from <paramref name="anchor"/> to <paramref name="active"/> (the caret's end, which may come first).</summary>
+        private void SetSelection(int anchor, int active)
+        {
+            SendMessage(Handle, EM_SETSEL, (IntPtr)anchor, (IntPtr)active);
+        }
+
+        /// <summary>
+        /// The gap between letters nearest to a point: in the right half of a letter the caret goes
+        /// after it. Past the end of a line, the end of that line.
+        /// </summary>
+        public int CaretIndexAt(Point p)
+        {
+            int length = TextLength;
+            if (length == 0) return 0;
+            int y = Math.Max(0, Math.Min(p.Y, ClientSize.Height - 1));
+            if (p.Y > PositionOf(length).Y + LineHeight) return length;   // below the last line
+            int index = GetCharIndexFromPosition(new Point(Math.Max(0, p.X), y));
+            string text = PlainText;
+            if (index >= length) return length;
+            Point at = GetPositionFromCharIndex(index);
+            if (text[index] == '\n') return index;
+            // GetCharIndexFromPosition gives the letter under the point; take the gap after it when
+            // the point is past its middle (and for points past the end of the line).
+            Point next = index + 1 < length ? GetPositionFromCharIndex(index + 1) : PositionOf(length);
+            int right = next.Y == at.Y && next.X > at.X ? next.X : at.X + CharWidth(text[index]);
+            if (p.X >= (at.X + right) / 2) index++;
+            return index;
+        }
 
         /// <summary>The part of the window about to be redrawn (null if unknown: then all of it).</summary>
         private Region UpdateRegion()

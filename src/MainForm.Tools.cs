@@ -63,14 +63,14 @@ namespace TabbedNotepad
         // ---------------------------------------------------------------- date lines and bookmarks
 
         /// <summary>
-        /// Inserts a separator line with today's date, e.g. "------------------------------2026-10-10",
-        /// on its own line. Such lines are shaded and listed in the navigator.
+        /// Inserts a separator line with today's date, 99 dashes then e.g. "2026-10-10", on its own
+        /// line. Such lines are listed in the navigator.
         /// </summary>
         private void InsertDateLine()
         {
             var editor = CurrentEditor;
             if (editor == null) return;
-            string line = new string('-', 30) + DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            string line = new string('-', 99) + DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             int lineIndex = editor.LineFromChar(editor.SelectionStart);
             bool lineEmpty = editor.LineEnd(lineIndex) == editor.LineStart(lineIndex);
             if (lineEmpty)

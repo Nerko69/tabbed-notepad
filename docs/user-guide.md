@@ -75,14 +75,17 @@ one category**. The other tabs stay open and keep saving; choose **All tabs** to
   removes and reorders categories.
 - A tab's category shows in its tooltip.
 
-**Tab groups.** Like tab groups in a web browser, the tabs of a category stay together and each
-one shows the first letters of its category in a small colored tag (`CC2` for CC247, `Org` for
-OrgSys…), with a line of the same color along its bottom. A tab you put in a category, or create
-in it, joins the end of that group.
+**Category tags.** Each tab in a category shows the first letters of its category in a small
+colored tag (`CC2` for CC247, `Org` for OrgSys…), with a line of the same color along its bottom.
+Turn the tags off with **View → Show Category on Tabs**.
+
+**Tab groups** (off unless you turn them on, so your tabs stay where you put them). With **View →
+Group Tabs by Category (Same Color)**, like tab groups in a web browser, the tabs of a category
+stay together and all get the category's color. A tab you put in a category, or create in it,
+joins the end of that group.
 
 - Moving a tab with **◄ ►** moves it within its group; at the end of the group, the whole group
   moves past the next tab (and a tab without a category jumps over a whole group).
-- Turn these off with **View → Group Tabs by Category** and **View → Show Category on Tabs**.
 
 ![Category menu: showing only the CC247 tabs](images/12-categories.png)
 
@@ -109,8 +112,9 @@ notes folder, so you can get it back.
 - **Saving is automatic.** A moment after you stop typing, the tab is saved. **Ctrl+S** saves
   immediately if you want to be sure.
 - **F5** inserts the current time and date (`10:45 PM 10/16/2026`), handy for a daily log.
-- The **Date/Time** button on the menu bar (or **Shift+F5**) inserts a date/time stamp:
-  `10/16/2026-10:45 PM`.
+- Two buttons on the menu bar insert a stamp with one click:
+  - **Date/Time** (or **Shift+F5**): `10/16/2026-10:45 PM`
+  - **Timestamp** (or **F5**): `10:45 PM 10/16/2026`
 - **Undo / Redo:** **Ctrl+Z** and **Ctrl+Y**, as many steps back as you need.
 - **Pasting** always pastes plain text, so text copied from a web page or Word doesn't bring its
   fonts and colors along.
@@ -129,6 +133,18 @@ notes folder, so you can get it back.
   text, so the picture is saved as a `.png` file in the `Images` folder inside your notes folder,
   and a link to it is pasted: `Image: file:///C:/Users/…/TabbedNotepad/Images/Image-2026-10-16-224500.png`.
   Click the link to open the picture.
+- **Picture previews.** Hover over a link to a picture and a preview pops up: a pasted picture, a
+  picture on your PC (**Edit → Insert Picture Link…** links one without moving it), or one on the
+  internet (`https://…/photo.jpg`). Click the link to open it.
+
+  Why not show the picture right inside the note? Notes are plain `.txt` files, so anyone and any
+  editor can read them, and they stay small and safe. A `.txt` file can't hold pictures; doing that
+  would mean saving notes in a different format, like `.rtf`, which only some programs open.
+- **Background color.** White can be hard on the eyes, especially at night. **Format → Background
+  Color** has softer colors (Warm Paper, Sepia, Soft Gray, Mint, Light Blue) and two dark ones (Night
+  and Night Blue), plus any color you like. It's remembered for all tabs.
+
+![Format → Background Color → Night](images/14-night-colors.png)
 - **Links** (`https://…`, `www.…`) are underlined. **Click** one to open it in your web browser.
   **Hover** over one and a small **copy icon** appears at its end: click it to copy the link,
   without having to select it. You can also right-click a link → **Copy Link**.
@@ -153,7 +169,7 @@ Line Numbers**).
 **Date lines.** A line with a run of at least five `-`, `=`, `_`, `*`, `~` or `#` characters,
 such as `-----------------2026-10-08` or `#####`, is treated as a section divider. It is listed in
 the Navigator, so you can jump to any day. **Ctrl+D** inserts one with today's date:
-`------------------------------2026-10-10`.
+99 dashes followed by the date, e.g. `-----…-----2026-10-10`.
 
 **Labels.** Labels are words you use to mark your notes, like `AVADOMS` (available domains) or
 `REGISTERED`.
@@ -271,6 +287,8 @@ To get a note back, open the zip in Explorer and copy the `.txt` file you need.
 
 ## Keyboard shortcuts
 
+**Help → Keyboard Shortcuts** shows them in the app too, with a **Copy All** button.
+
 | Keys | Action |
 |---|---|
 | Ctrl+T | New tab |
@@ -280,7 +298,7 @@ To get a note back, open the zip in Explorer and copy the `.txt` file you need.
 | Ctrl+1 … Ctrl+9 | Go to tab 1 … 9 (Ctrl+9: last tab) |
 | Ctrl+Shift+Page Up / Page Down | Move tab left / right |
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
-| F5 | Insert time and date (`10:45 PM 10/16/2026`) |
+| F5 | Insert time and date (`10:45 PM 10/16/2026`), same as the **Timestamp** button |
 | Shift+F5 | Insert a date/time stamp (`10/16/2026-10:45 PM`), same as the **Date/Time** button |
 | Ctrl+D | Insert a date line (`-----…2026-10-10`) |
 | Click a line number / Ctrl+F2 | Bookmark a line |

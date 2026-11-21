@@ -53,6 +53,7 @@ namespace TabbedNotepad
         {
             _groupTabsItem.Checked = group;
             if (group) RegroupTabs();
+            _tabs.Invalidate();   // group colors
             _indexDirty = true;
             ScheduleSave();
         }
@@ -220,6 +221,23 @@ namespace TabbedNotepad
             {
                 MessageBox.Show(this, "The picture could not be saved:\n\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return null;
+            }
+        }
+
+        /// <summary>Edit → Insert Picture Link: links a picture on this PC (it stays where it is); hover to see it, click to open it.</summary>
+        private void InsertPictureLink()
+        {
+            var editor = CurrentEditor;
+            if (editor == null) return;
+            using (var dialog = new OpenFileDialog
+            {
+                Title = "Insert a link to a picture",
+                Filter = "Pictures|*.png;*.jpg;*.jpeg;*.gif;*.bmp|All files|*.*",
+            })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                editor.ReplaceSelection("Image: " + new Uri(dialog.FileName).AbsoluteUri + "\n");
+                editor.Focus();
             }
         }
 
