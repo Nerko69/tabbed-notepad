@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -28,7 +29,7 @@ namespace TabbedNotepad
     /// <summary>
     /// The text area of a tab. A RichTextBox kept to plain text: it gives multi-level Undo/Redo
     /// and clickable links, while pasting, typing and saving only ever deal in plain text.
-    /// On top of the text it paints bookmarked lines, date/separator lines, labels and search matches.
+    /// On top of the text it paints bookmarked lines, labels and search matches.
     /// </summary>
     internal sealed class NoteEditor : RichTextBox
     {
@@ -39,8 +40,66 @@ namespace TabbedNotepad
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
 
+        [DllImport("user32.dll")]
+        private static extern int GetUpdateRgn(IntPtr hWnd, IntPtr hRgn, bool erase);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr handle);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string fileName);
+
+        private const int WM_MOUSEMOVE = 0x0200;
+        private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_LBUTTONUP = 0x0202;
+        private const int WM_CAPTURECHANGED = 0x0215;
+        private const int WM_VSCROLL = 0x0115;
+        private const int EM_SETSEL = 0x00B1;
+        private const int SB_LINEUP = 0, SB_LINEDOWN = 1;
+
+        private static readonly bool OnWindows = Environment.OSVersion.Platform == PlatformID.Win32NT;
+
+        /// <summary>The newer rich edit control (msftedit.dll, as used by current .NET): faster with long text.</summary>
+        private static readonly bool HasRichEdit50 = OnWindows && LoadRichEdit50();
+
+        private static bool LoadRichEdit50()
+        {
+            try
+            {
+                return LoadLibrary("msftedit.dll") != IntPtr.Zero;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                if (HasRichEdit50) cp.ClassName = "RICHEDIT50W";
+                return cp;
+            }
+        }
+
         private static readonly Regex UrlPattern = new Regex(
-            @"\b(?:https?://|www\.)[^\s<>""'`]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            @"\b(?:https?://|www\.|file:///)[^\s<>""'`]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".bmp" };
+
+        /// <summary>
+        /// Saves a pasted picture and returns the text to put in the note (a link to the picture),
+        /// or null. Set by the main window, which knows the notes folder.
+        /// </summary>
+        public static Func<Image, string> SavePastedImage;
 
         /// <summary>
         /// A separator line such as "--------------2026-10-08" or "==== Monday ====": a run of at least
@@ -121,19 +180,30 @@ namespace TabbedNotepad
             SelectedText = text;
         }
 
-        /// <summary>Pastes the clipboard as plain text, never as formatted text or pictures.</summary>
+        /// <summary>
+        /// Pastes the clipboard as plain text. Tables (from a web page, Excel, Word...) become text
+        /// tables with lined-up columns; a picture is saved as a file and a link to it is pasted.
+        /// </summary>
         public void PastePlainText()
         {
-            string text;
+            string text = null;
             try
             {
-                if (!Clipboard.ContainsText()) return;
-                text = Clipboard.GetText();
+                if (Clipboard.ContainsText(TextDataFormat.Html))
+                    text = HtmlTables.ToText(Clipboard.GetText(TextDataFormat.Html));
+                if (text == null && Clipboard.ContainsText())
+                    text = Clipboard.GetText();
+                if (text == null && Clipboard.ContainsImage() && SavePastedImage != null)
+                {
+                    using (var image = Clipboard.GetImage())
+                        if (image != null) text = SavePastedImage(image);
+                }
             }
             catch (ExternalException)
             {
                 return; // clipboard is busy in another program
             }
+            if (text == null) return;
             ReplaceSelection(text.Replace("\r\n", "\n").Replace('\r', '\n'));
         }
 
@@ -179,9 +249,190 @@ namespace TabbedNotepad
                 PastePlainText();
                 return;
             }
+            if (OnWindows && HandleMouseSelection(ref m)) return;
+            if (m.Msg != WM_PAINT)
+            {
+                base.WndProc(ref m);
+                return;
+            }
+            // The marks are see-through, so they may only be painted where the text was just
+            // redrawn: painting them again over the rest of the window darkens them each time
+            // (which made separator lines turn black while selecting with the mouse).
+            Region updated = UpdateRegion();
             base.WndProc(ref m);
-            if (m.Msg == WM_PAINT && TextLength > 0)
-                PaintMarks();
+            try
+            {
+                if (TextLength > 0 && (updated == null || !updated.IsEmpty(_regionTest))) PaintMarks(updated);
+            }
+            finally
+            {
+                updated?.Dispose();
+            }
+        }
+
+        private static readonly Graphics _regionTest = Graphics.FromImage(new Bitmap(1, 1));
+
+        // ---------------------------------------------------------------- mouse selection
+
+        // The rich edit control's own mouse selection "helps" by jumping to whole words, and
+        // Shift+click only lands on some spots. Selecting with the left button is done here instead:
+        // the selection goes exactly from where the button went down (or, with Shift, from the
+        // current selection) to the letter gap nearest the mouse. Double-click still selects a word.
+        private bool _selecting;
+        private int _anchor;
+        private Timer _selectScroll;
+
+        private bool HandleMouseSelection(ref Message m)
+        {
+            switch (m.Msg)
+            {
+                case WM_LBUTTONDOWN:
+                {
+                    Point p = PointFromLParam(m.LParam);
+                    // The keys and buttons held when the message was sent (MK_SHIFT, MK_CONTROL).
+                    int keys = unchecked((int)m.WParam.ToInt64());
+                    bool shift = (keys & 0x0004) != 0;
+                    bool ctrl = (keys & 0x0008) != 0;
+                    // Clicks on links (they open on click) and Ctrl+clicks go to the control as usual.
+                    if (ctrl || (!shift && LinkAtPoint(p) != null)) return false;
+                    if (!Focused) Focus();
+                    int index = CaretIndexAt(p);
+                    if (shift)
+                    {
+                        int start = SelectionStart, end = SelectionStart + SelectionLength;
+                        if (!_haveAnchor || _anchor < start || _anchor > end || (SelectionLength > 0 && _anchor != start && _anchor != end))
+                            _anchor = index < start ? end : start;
+                    }
+                    else
+                    {
+                        _anchor = index;
+                    }
+                    _haveAnchor = true;
+                    SetSelection(_anchor, index);
+                    _selecting = true;
+                    Capture = true;
+                    return true;
+                }
+                case WM_MOUSEMOVE:
+                    if (!_selecting) return false;
+                    if ((unchecked((int)m.WParam.ToInt64()) & 0x0001) == 0) { EndMouseSelection(); return false; }   // MK_LBUTTON released
+                    ExtendSelectionTo(PointFromLParam(m.LParam));
+                    return true;
+                case WM_LBUTTONUP:
+                    if (!_selecting) return false;
+                    ExtendSelectionTo(PointFromLParam(m.LParam));
+                    EndMouseSelection();
+                    return true;
+                case WM_CAPTURECHANGED:
+                    if (_selecting) EndMouseSelection();
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
+        private bool _haveAnchor;
+
+        private static Point PointFromLParam(IntPtr lParam)
+        {
+            int value = unchecked((int)lParam.ToInt64());
+            return new Point((short)(value & 0xFFFF), (short)((value >> 16) & 0xFFFF));
+        }
+
+        private void ExtendSelectionTo(Point p)
+        {
+            SetSelection(_anchor, CaretIndexAt(p));
+            // Above or below the text: keep scrolling while the button is held.
+            bool outside = p.Y < 0 || p.Y > ClientSize.Height;
+            if (outside && _selectScroll == null)
+            {
+                _selectScroll = new Timer { Interval = 60 };
+                _selectScroll.Tick += (s, e) =>
+                {
+                    Point mouse = PointToClient(MousePosition);
+                    if (!_selecting || (mouse.Y >= 0 && mouse.Y <= ClientSize.Height)) { StopSelectScroll(); return; }
+                    SendMessage(Handle, WM_VSCROLL, (IntPtr)(mouse.Y < 0 ? SB_LINEUP : SB_LINEDOWN), IntPtr.Zero);
+                    SetSelection(_anchor, CaretIndexAt(mouse));
+                };
+                _selectScroll.Start();
+            }
+            else if (!outside)
+            {
+                StopSelectScroll();
+            }
+        }
+
+        private void StopSelectScroll()
+        {
+            _selectScroll?.Dispose();
+            _selectScroll = null;
+        }
+
+        private void EndMouseSelection()
+        {
+            _selecting = false;
+            StopSelectScroll();
+            if (Capture) Capture = false;
+        }
+
+        /// <summary>Selects from <paramref name="anchor"/> to <paramref name="active"/> (the caret's end, which may come first).</summary>
+        private void SetSelection(int anchor, int active)
+        {
+            SendMessage(Handle, EM_SETSEL, (IntPtr)anchor, (IntPtr)active);
+        }
+
+        /// <summary>
+        /// The gap between letters nearest to a point: in the right half of a letter the caret goes
+        /// after it. Past the end of a line, the end of that line.
+        /// </summary>
+        public int CaretIndexAt(Point p)
+        {
+            int length = TextLength;
+            if (length == 0) return 0;
+            int y = Math.Max(0, Math.Min(p.Y, ClientSize.Height - 1));
+            if (p.Y > PositionOf(length).Y + LineHeight) return length;   // below the last line
+            int index = GetCharIndexFromPosition(new Point(Math.Max(0, p.X), y));
+            string text = PlainText;
+            if (index >= length) return length;
+            Point at = GetPositionFromCharIndex(index);
+            if (text[index] == '\n') return index;
+            // GetCharIndexFromPosition gives the letter under the point; take the gap after it when
+            // the point is past its middle (and for points past the end of the line).
+            Point next = index + 1 < length ? GetPositionFromCharIndex(index + 1) : PositionOf(length);
+            int right = next.Y == at.Y && next.X > at.X ? next.X : at.X + CharWidth(text[index]);
+            if (p.X >= (at.X + right) / 2) index++;
+            return index;
+        }
+
+        /// <summary>The part of the window about to be redrawn (null if unknown: then all of it).</summary>
+        private Region UpdateRegion()
+        {
+            try
+            {
+                IntPtr rgn = CreateRectRgn(0, 0, 0, 0);
+                try
+                {
+                    return GetUpdateRgn(Handle, rgn, false) == 0 ? null : Region.FromHrgn(rgn);   // 0 = error: paint everything
+                }
+                finally
+                {
+                    DeleteObject(rgn);
+                }
+            }
+            catch (Exception ex) when (ex is EntryPointNotFoundException || ex is DllNotFoundException)
+            {
+                return null;   // not on Windows (testing only)
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            // The rich edit control snaps mouse selections to whole words even though
+            // AutoWordSelection says false; switching it on and off really turns it off, so a
+            // selection follows the mouse letter by letter.
+            AutoWordSelection = true;
+            AutoWordSelection = false;
         }
 
         // ---------------------------------------------------------------- lines
@@ -364,6 +615,11 @@ namespace TabbedNotepad
             if (string.IsNullOrWhiteSpace(url)) return;
             url = url.Trim();
             if (url.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) url = "http://" + url;
+            if (url.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenImageLink(url);
+                return;
+            }
             // Only web links: a note shouldn't be able to start programs.
             if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                 !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return;
@@ -389,6 +645,34 @@ namespace TabbedNotepad
         }
 
         public List<LinkSpan> Links => _links ?? (_links = FindLinks(PlainText).ToList());
+
+        /// <summary>Opens a pasted picture (file:/// link). Only pictures: a note shouldn't be able to start programs.</summary>
+        private static void OpenImageLink(string url)
+        {
+            string path;
+            try
+            {
+                path = new Uri(url).LocalPath;
+            }
+            catch (UriFormatException)
+            {
+                return;
+            }
+            if (!ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant())) return;
+            if (!File.Exists(path))
+            {
+                MessageBox.Show("The picture was not found:\n" + path, "Tabbed Notepad", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            try
+            {
+                System.Diagnostics.Process.Start(path);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not open the picture:\n" + path + "\n\n" + ex.Message, "Tabbed Notepad", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
 
         /// <summary>The link under a point (in this control's coordinates), if any.</summary>
         public LinkSpan? LinkAtPoint(Point point)
@@ -459,29 +743,26 @@ namespace TabbedNotepad
         // ---------------------------------------------------------------- painting
 
         private static readonly Color BookmarkColor = Color.FromArgb(60, 70, 140, 255);
-        private static readonly Color SectionColor = Color.FromArgb(45, 120, 120, 120);
         private static readonly Color MatchFill = Color.FromArgb(70, 255, 225, 0);
         private static readonly Color MatchBorder = Color.FromArgb(170, 235, 170, 0);
 
         /// <summary>
-        /// Paints light, see-through marks over the text: bookmarked lines, separator/date lines,
-        /// labels and search matches. They're drawn after the text but transparent enough to read it.
+        /// Paints light, see-through marks over the text: bookmarked lines, labels and search
+        /// matches. They're drawn after the text but transparent enough to read it, and only over
+        /// the part of the window that was just redrawn (<paramref name="clip"/>).
         /// </summary>
-        private void PaintMarks()
+        private void PaintMarks(Region clip)
         {
             bool hasSearch = _highlightTerm != null && HighlightPositions.Count > 0;
             bool hasLabels = NoteLabels.Pattern != null;
-            if (_bookmarks.Count == 0 && !hasSearch && !hasLabels && SectionLines.Count == 0) return;
+            if (_bookmarks.Count == 0 && !hasSearch && !hasLabels) return;
 
             VisibleRange(out int first, out int last);
             int firstLine = LineFromChar(first), lastLine = LineFromChar(last);
 
             using (var g = Graphics.FromHwnd(Handle))
             {
-                using (var brush = new SolidBrush(SectionColor))
-                    foreach (int line in SectionLines)
-                        if (line >= firstLine && line <= lastLine) FillLine(g, brush, line);
-
+                if (clip != null) g.Clip = clip;
                 using (var brush = new SolidBrush(BookmarkColor))
                     foreach (int line in BookmarkLines)
                         if (line >= firstLine && line <= lastLine) FillLine(g, brush, line);

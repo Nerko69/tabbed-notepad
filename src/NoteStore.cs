@@ -77,14 +77,21 @@ namespace TabbedNotepad
             return candidate;
         }
 
-        /// <summary>Renames a tab's file on disk (if it exists) when the tab is renamed.</summary>
-        public void RenameNote(string oldId, string newId)
+        /// <summary>
+        /// Renames a tab's file on disk (if it exists) when the tab is renamed. With
+        /// <paramref name="keepOld"/> the file under the old name stays as well (a copy is made).
+        /// </summary>
+        public void RenameNote(string oldId, string newId, bool keepOld = false)
         {
             if (oldId == newId) return;
             string from = NotePath(oldId);
             if (!File.Exists(from)) return;
             string to = NotePath(newId);
-            if (string.Equals(oldId, newId, StringComparison.OrdinalIgnoreCase))
+            if (keepOld && !string.Equals(oldId, newId, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Copy(from, to, overwrite: true);
+            }
+            else if (string.Equals(oldId, newId, StringComparison.OrdinalIgnoreCase))
             {
                 // Only the letter case changes; Windows needs a detour through a temporary name.
                 string temp = NotePath(newId + "." + Guid.NewGuid().ToString("N"));

@@ -215,13 +215,13 @@ namespace TabbedNotepad
             _list.Columns.Add("Label", Dpi.Scale(300));
 
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, FlowDirection = FlowDirection.TopDown, Padding = new Padding(Dpi.Scale(6)) };
-            var add = new Button { Text = "Add...", Width = Dpi.Scale(110) };
-            var color = new Button { Text = "Change Color...", Width = Dpi.Scale(110) };
-            var rename = new Button { Text = "Rename...", Width = Dpi.Scale(110) };
-            var remove = new Button { Text = "Remove", Width = Dpi.Scale(110) };
-            var insert = new Button { Text = "Insert in Note", Width = Dpi.Scale(110) };
-            var ok = new Button { Text = "OK", Width = Dpi.Scale(110), DialogResult = DialogResult.OK, Margin = new Padding(3, Dpi.Scale(20), 3, 3) };
-            var cancel = new Button { Text = "Cancel", Width = Dpi.Scale(110), DialogResult = DialogResult.Cancel };
+            var add = new Button { Text = "Add...", AutoSize = true, MinimumSize = new Size(Dpi.Scale(120), 0) };
+            var color = new Button { Text = "Change Color...", AutoSize = true, MinimumSize = new Size(Dpi.Scale(120), 0) };
+            var rename = new Button { Text = "Rename...", AutoSize = true, MinimumSize = new Size(Dpi.Scale(120), 0) };
+            var remove = new Button { Text = "Remove", AutoSize = true, MinimumSize = new Size(Dpi.Scale(120), 0) };
+            var insert = new Button { Text = "Insert in Note", AutoSize = true, MinimumSize = new Size(Dpi.Scale(120), 0) };
+            var ok = new Button { Text = "OK", AutoSize = true, MinimumSize = new Size(Dpi.Scale(120), 0), DialogResult = DialogResult.OK, Margin = new Padding(3, Dpi.Scale(20), 3, 3) };
+            var cancel = new Button { Text = "Cancel", AutoSize = true, MinimumSize = new Size(Dpi.Scale(120), 0), DialogResult = DialogResult.Cancel };
             buttons.Controls.AddRange(new Control[] { add, color, rename, remove, insert, ok, cancel });
 
             Controls.Add(_list);
@@ -395,7 +395,8 @@ namespace TabbedNotepad
             foreach (string c in categories) _list.Items.Add(c);
 
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, FlowDirection = FlowDirection.TopDown, Padding = new Padding(Dpi.Scale(6)) };
-            Button B(string text) => new Button { Text = text, Width = Dpi.Scale(100) };
+            // AutoSize: tall enough for the text at any display scaling (fixed heights cut it off).
+            Button B(string text) => new Button { Text = text, AutoSize = true, MinimumSize = new Size(Dpi.Scale(110), 0) };
             var add = B("Add...");
             var rename = B("Rename...");
             var remove = B("Remove");
@@ -500,6 +501,53 @@ namespace TabbedNotepad
             Controls.Add(layout);
             AcceptButton = ok;
             CancelButton = ok;
+        }
+    }
+
+    /// <summary>A window showing text that can be selected and copied (e.g. the keyboard shortcuts).</summary>
+    internal sealed class TextWindow : Form
+    {
+        public TextWindow(string title, string text)
+        {
+            Text = title;
+            StartPosition = FormStartPosition.CenterParent;
+            ShowInTaskbar = false;
+            MinimizeBox = false;
+            Font = SystemFonts.MessageBoxFont;
+            ClientSize = new Size(Dpi.Scale(640), Dpi.Scale(560));
+            Padding = new Padding(Dpi.Scale(8));
+
+            var box = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Dock = DockStyle.Fill,
+                Font = new Font("Consolas", 10f),
+                BackColor = SystemColors.Window,
+                Text = text,
+            };
+            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(0, Dpi.Scale(6), 0, 0) };
+            var close = new Button { Text = "Close", AutoSize = true, MinimumSize = new Size(Dpi.Scale(90), 0), DialogResult = DialogResult.Cancel };
+            var copy = new Button { Text = "Copy All", AutoSize = true, MinimumSize = new Size(Dpi.Scale(90), 0) };
+            copy.Click += (s, e) =>
+            {
+                try
+                {
+                    Clipboard.SetText(box.Text);
+                    copy.Text = "Copied!";
+                }
+                catch (System.Runtime.InteropServices.ExternalException)
+                {
+                    copy.Text = "Clipboard busy";
+                }
+            };
+            buttons.Controls.Add(close);
+            buttons.Controls.Add(copy);
+            Controls.Add(box);
+            Controls.Add(buttons);
+            CancelButton = close;
+            Shown += (s, e) => { box.SelectionLength = 0; close.Focus(); };
         }
     }
 }

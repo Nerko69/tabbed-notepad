@@ -24,7 +24,8 @@ namespace TabbedNotepad
             BackColor = Color.FromArgb(246, 246, 246);
             ForeColor = Color.FromArgb(140, 140, 140);
 
-            _editor.VScroll += (s, e) => Invalidate();
+            // Repaint right away, so the numbers move together with the text while scrolling.
+            _editor.VScroll += (s, e) => { Invalidate(); Update(); };
             _editor.TextChanged += (s, e) => { UpdateWidth(); Invalidate(); };
             _editor.FontChanged += (s, e) => { UpdateWidth(); Invalidate(); };
             _editor.Resize += (s, e) => Invalidate();
@@ -32,6 +33,9 @@ namespace TabbedNotepad
             _editor.SelectionChanged += (s, e) => Invalidate();
             UpdateWidth();
         }
+
+        public Color CurrentLineColor { get; set; } = Color.FromArgb(60, 60, 60);
+        public Color EdgeColor { get; set; } = Color.FromArgb(225, 225, 225);
 
         private int DotSize => Math.Max(6, _editor.LineHeight / 2);
 
@@ -46,7 +50,7 @@ namespace TabbedNotepad
         {
             var g = e.Graphics;
             g.Clear(BackColor);
-            using (var edge = new Pen(Color.FromArgb(225, 225, 225)))
+            using (var edge = new Pen(EdgeColor))
                 g.DrawLine(edge, Width - 1, 0, Width - 1, Height);
             if (!_editor.IsHandleCreated) return;
 
@@ -59,7 +63,7 @@ namespace TabbedNotepad
             // Walk the screen rows that are visible; number the ones where a line starts
             // (a long line wrapped over several rows gets one number).
             int row = _editor.GetLineFromCharIndex(_editor.GetCharIndexFromPosition(new Point(1, 1)));
-            using (var current = new SolidBrush(Color.FromArgb(60, 60, 60)))
+            using (var current = new SolidBrush(CurrentLineColor))
             using (var dot = new SolidBrush(BookmarkDot))
             {
                 for (; ; row++)
