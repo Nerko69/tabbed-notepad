@@ -1,0 +1,38 @@
+name: Release
+
+# Pushing a version tag (e.g. v1.7.0) builds Tabbed Notepad, checks it, and publishes a GitHub
+# release with TabbedNotepad.exe attached. The release text comes from docs/releases/<tag>.md.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # to create the release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: dotnet build src/TabbedNotepad.csproj -c Release
+
+      - name: Run feature checks
+        timeout-minutes: 5
+        run: |
+          dotnet build tools/Screenshots/Screenshots.csproj -c Release
+          tools/Screenshots/bin/Release/net48/Screenshots.exe screenshots
+          $code = $LASTEXITCODE
+          Write-Host "Screenshots.exe exit code: $code"
+          exit $code
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notes = "docs/releases/$tag.md"
+          if (-not (Test-Path $notes)) { Set-Content $notes "Tabbed Notepad $tag" }
+          gh release create $tag "src/bin/Release/net48/TabbedNotepad.exe" --title "Tabbed Notepad $($tag.TrimStart('v'))" --notes-file $notes

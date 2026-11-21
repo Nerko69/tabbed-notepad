@@ -12,8 +12,8 @@ their names, colors and text are all back when you open the app again.
 
 ## Download and run
 
-1. Download [`download/TabbedNotepad.exe`](download/TabbedNotepad.exe)
-   (on GitHub, open the file and click the **Download raw file** button).
+1. Download `TabbedNotepad.exe` from the latest **[release](https://github.com/Nerko69/tabbed-notepad/releases/latest)**
+   (or [`download/TabbedNotepad.exe`](download/TabbedNotepad.exe): open it and click **Download raw file**).
 2. Put it anywhere you like, e.g. your Desktop or `C:\Tools`, and double-click it.
 
 No installation needed. It runs on Windows 10 and 11, which already include .NET Framework 4.8.
